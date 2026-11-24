@@ -115,34 +115,21 @@ function createProgram(vsSource, fsSource) {
   return prog;
 }
 
-// Shader editors
-const vertEditor = document.getElementById("vertEditor");
-const fragEditor = document.getElementById("fragEditor");
-const shaderError = document.getElementById("shaderError");
-vertEditor.value = VERTEX_SHADER;
-fragEditor.value = FRAGMENT_SHADER;
+const program = createProgram(
+    VERTEX_SHADER,
+    FRAGMENT_SHADER
+);
 
-let program, uModelView, uProjection, uLightPos, uMapping;
+gl.useProgram(program);
 
-function updateProgram() {
-  try {
-    const prog = createProgram(vertEditor.value, fragEditor.value);
-    gl.deleteProgram(program);
-    program = prog;
-    gl.useProgram(program);
-    uModelView = gl.getUniformLocation(program, "uModelView");
-    uProjection = gl.getUniformLocation(program, "uProjection");
-    uLightPos = gl.getUniformLocation(program, "uLightPos");
-    uMapping = gl.getUniformLocation(program, "uMapping");
-    gl.uniform1i(gl.getUniformLocation(program, "uTexture"), 0);
-    shaderError.textContent = "";
-  } catch (e) {
-    shaderError.textContent = e.message.replace(/\0/g, "");
-  }
-}
-updateProgram();
-vertEditor.addEventListener("input", updateProgram);
-fragEditor.addEventListener("input", updateProgram);
+const uModelView = gl.getUniformLocation(program, "uModelView");
+const uProjection = gl.getUniformLocation(program, "uProjection");
+const uLightPos = gl.getUniformLocation(program, "uLightPos");
+const uMapping = gl.getUniformLocation(program, "uMapping");
+
+gl.uniform1i(
+    gl.getUniformLocation(program, "uTexture"), 0
+);
 
 function bindAttribute(name, data, size) {
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
@@ -243,6 +230,7 @@ function updateAnimatedTexture(animatedTexture) {
 
 const groundMesh = createMesh(createPlane(50));
 const pondMesh = createMesh(createDisk(100));
+const mountainMesh = createMesh(createMountain(100, 22, 200));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -264,24 +252,45 @@ function loadTexture(url) {
 const normalTexture = loadTexture("labb.gif");
 const groundTexture = loadTexture("ground.jpeg");
 const waterTexture = loadAnimatedTexture("water.mp4");
+const mountainTexture = loadTexture("mountain.jpeg");
 
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1;
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
-  { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.1, 0] }
+  { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.1, 0] },
+  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, 0, -60] }
 ];
 
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0.53, 0.81, 0.92, 1.0);
-const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
+
+let projection;
+
+function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = Math.round(window.innerWidth * dpr);
+    canvas.height = Math.round(window.innerHeight * dpr);
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    projection = perspective(
+        Math.PI / 4,
+        canvas.width / canvas.height,
+        0.1,
+        100
+    );
+}
+
+window.addEventListener("resize", resizeCanvas);
+
+resizeCanvas();
+
 const lightWorld = [3, 4, 5];
 
 // Interactive controls
-let dragRotX = 0.4, dragRotY = -0.5;      // mouse drag
-let camX = 0, camY = 0, camZ = -20;      // arrow keys, w, s
-let sliderAngle = 0;                    // degrees
-let spinning = false, spinAngle = 0;    // Start/Stop button
-
+let dragRotX = 0.3, dragRotY = 0;
+let camX = 0, camY = -2, camZ = -30;
 
 let mouseDown = false, lastX, lastY;
 canvas.addEventListener("mousedown", e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
@@ -294,7 +303,6 @@ window.addEventListener("mousemove", e => {
 });
 
 document.addEventListener("keydown", e => {
-  if (e.target === vertEditor || e.target === fragEditor) return;
   const step = 0.2;
   switch (e.key) {
     case "ArrowUp": camY -= step; break;
@@ -308,34 +316,26 @@ document.addEventListener("keydown", e => {
   e.preventDefault();
 });
 
-const axisSelect = document.getElementById("axisSelect");
-document.getElementById("slider").addEventListener("input", e => {
-  sliderAngle = Number(e.target.value);
-  document.getElementById("sliderValue").textContent = sliderAngle;
-});
-document.getElementById("spinButton").addEventListener("click", () => spinning = !spinning);
-
 // Render loop
-let lastTime = 0;
 function render(time) {
   const t = time / 1000;
-  if (spinning) spinAngle += t - lastTime;
-  lastTime = t;
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   const view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
   gl.uniform3fv(uLightPos, transformPoint(view, lightWorld));
 
-  const axisRotation = ROTATE[axisSelect.value](sliderAngle * Math.PI / 180 + spinAngle);
-  const rotation = multiply(multiply(rotateY(dragRotY), rotateX(dragRotX)), axisRotation);
+
+  const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
 
     if (animatedTexture) updateAnimatedTexture(animatedTexture);
 
-    gl.uniformMatrix4fv(uModelView, false, multiply(view, multiply(translate(...offset), rotation)));
+    const model = multiply(rotation, translate(...offset));
+    gl.uniformMatrix4fv(uModelView, false, multiply(view,model));
+
     gl.uniform1i(uMapping, mapping);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.bindVertexArray(mesh.vao);
