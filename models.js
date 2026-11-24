@@ -393,4 +393,38 @@ function createTorus(R, r, segMajor, segMinor) {
     indices: new Uint16Array(indices)
   };
 }
+function createDisk(segments = 64) {
+    const positions = [0, 0, 0];
+    const normals = [0, 1, 0];
+    const tangents = [1, 0, 0];
+    const texCoords = [0.5, 0.5];
+    const indices = [];
 
+    for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+
+        const x = Math.cos(angle);
+        const z = Math.sin(angle);
+
+        positions.push(x, 0, z);
+        normals.push(0, 1, 0);
+        tangents.push(1, 0, 0);
+
+        texCoords.push(
+            (x + 1) / 2,
+            (1 - z) / 2
+        );
+    }
+
+    for (let i = 1; i <= segments; i++) {
+        indices.push(0, i + 1, i);
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}

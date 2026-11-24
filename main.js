@@ -163,9 +163,86 @@ function createMesh({ positions, normals, tangents, texCoords, indices }) {
   return { vao, count: indices.length };
 }
 
-const cubeMesh = createMesh(createCube());
-const cylinderMesh = createMesh(createCylinder());
+function loadAnimatedTexture(url) {
+    const texture = gl.createTexture();
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Temporary pixel until the video is ready
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        1,
+        1,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        new Uint8Array([0, 100, 200, 255])
+    );
+
+    // Texture parameters
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Create the video
+    const video = document.createElement("video");
+
+    video.crossOrigin = "anonymous";
+    video.src = url;
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = true;
+    video.playsInline = true;
+
+    video.play().catch(console.warn);
+
+    return {
+        texture: texture,
+        video: video,
+        lastTime: -1
+    };
+}
+
+function updateAnimatedTexture(animatedTexture) {
+    const { texture, video } = animatedTexture;
+
+    if (video.readyState < video.HAVE_CURRENT_DATA) {
+        return;
+    }
+
+    // Avoid uploading the same playback time repeatedly
+    if (video.currentTime === animatedTexture.lastTime) {
+        return;
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        video
+    );
+
+    animatedTexture.lastTime = video.currentTime;
+}
+
 const groundMesh = createMesh(createPlane(50));
+const pondMesh = createMesh(createDisk(100));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -184,27 +261,27 @@ function loadTexture(url) {
   return texture;
 }
 
-const brickTexture = loadTexture("labb.gif");
-const normalTexture = loadTexture("texture2.jpg");
+const normalTexture = loadTexture("labb.gif");
 const groundTexture = loadTexture("ground.jpeg");
+const waterTexture = loadAnimatedTexture("water.mp4");
 
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1;
 const objects = [
-  { mesh: cubeMesh, texture: brickTexture, mapping: BUMP_MAPPING, offset: [-1.8, 1, 0] },
-  { mesh: cylinderMesh, texture: normalTexture, mapping: NORMAL_MAPPING, offset: [1.8, 1, 0] },
-  { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] }
+  { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
+  { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.1, 0] }
 ];
 
 gl.enable(gl.DEPTH_TEST);
-gl.clearColor(0, 0, 0, 1);
+gl.clearColor(0.53, 0.81, 0.92, 1.0);
 const projection = perspective(Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
 const lightWorld = [3, 4, 5];
 
 // Interactive controls
-let dragRotX = 0, dragRotY = -0.5;      // mouse drag
-let camX = 0, camY = 0, camZ = -7;      // arrow keys, w, s
+let dragRotX = 0.4, dragRotY = -0.5;      // mouse drag
+let camX = 0, camY = 0, camZ = -20;      // arrow keys, w, s
 let sliderAngle = 0;                    // degrees
 let spinning = false, spinAngle = 0;    // Start/Stop button
+
 
 let mouseDown = false, lastX, lastY;
 canvas.addEventListener("mousedown", e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
@@ -254,7 +331,10 @@ function render(time) {
   const rotation = multiply(multiply(rotateY(dragRotY), rotateX(dragRotX)), axisRotation);
 
   gl.activeTexture(gl.TEXTURE0);
-  for (const { mesh, texture, mapping, offset } of objects) {
+  for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
+
+    if (animatedTexture) updateAnimatedTexture(animatedTexture);
+
     gl.uniformMatrix4fv(uModelView, false, multiply(view, multiply(translate(...offset), rotation)));
     gl.uniform1i(uMapping, mapping);
     gl.bindTexture(gl.TEXTURE_2D, texture);
