@@ -428,3 +428,89 @@ function createDisk(segments = 64) {
         indices: new Uint16Array(indices)
     };
 }
+
+function createMountain(width = 50, depth = 12, segments = 100) {
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+
+    function getHeight(x, z) {
+        const ridge =
+            5.0 +
+            2.5 * Math.sin(x * 0.5) +
+            1.5 * Math.cos(x * 1.2) +
+            0.5 * Math.sin(x * 2.8);
+
+        const slope = Math.sin(Math.PI * z / depth);
+
+        return ridge * slope * (0.8 + 0.5 * Math.random());
+    }
+
+    for (let i = 0; i <= segments; i++) {
+        for (let j = 0; j <= segments; j++) {
+
+            const x = (j / segments - 0.5) * width;
+            const z = (i / segments) * depth;
+            const y = getHeight(x, z);
+
+            positions.push(x, y, z);
+
+            // Calculate surface normals
+            const e = 0.01;
+
+            const dx = (
+                getHeight(x + e, z) -
+                getHeight(x - e, z)
+            ) / (2 * e);
+
+            const dz = (
+                getHeight(x, z + e) -
+                getHeight(x, z - e)
+            ) / (2 * e);
+
+            const length = Math.hypot(dx, 1, dz);
+
+            normals.push(
+                -dx / length,
+                 1 / length,
+                -dz / length
+            );
+
+            const tangentLength = Math.hypot(1, dx);
+
+            tangents.push(
+                1 / tangentLength,
+                dx / tangentLength,
+                0
+            );
+
+            texCoords.push(
+                j / segments * 8,
+                i / segments * 2
+            );
+        }
+    }
+
+    for (let i = 0; i < segments; i++) {
+        for (let j = 0; j < segments; j++) {
+
+            const a = i * (segments + 1) + j;
+            const b = a + 1;
+            const c = a + segments + 1;
+            const d = c + 1;
+
+            indices.push(a, c, b);
+            indices.push(b, c, d);
+        }
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
