@@ -13,6 +13,7 @@ out vec3 vTangent;
 out vec2 vTexCoord;
 
 void main() {
+
   vec4 p = uModelView * vec4(aPosition, 1.0);
   vPosition = p.xyz;
 
@@ -35,9 +36,11 @@ in vec3 vNormal;
 in vec3 vTangent;
 in vec2 vTexCoord;
 
-uniform vec3 uLightPos;
+//uniform vec3 uLightPos;
+uniform vec3 uLightDir;
 uniform sampler2D uTexture;
-uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping
+uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping, 3 = animated texture
+uniform float uLightIntensity;
 
 out vec4 fragColor;
 
@@ -51,6 +54,13 @@ float height(vec2 uv) {
 }
 
 void main() {
+
+// Emissive texture for the sun
+  if (uMapping == 3) {
+    fragColor = vec4(texture(uTexture, vTexCoord).rgb, 1.0);
+    return;
+  }
+
   // Tangent frame (T, B, N)
   vec3 N = normalize(vNormal);
   vec3 T = normalize(vTangent - dot(vTangent, N) * N);
@@ -80,14 +90,23 @@ void main() {
   float shininess = 32.0;
 
   N = normalize(TBN * n);
-  vec3 L = normalize(uLightPos - vPosition);
+  vec3 L = normalize(uLightDir);
   vec3 V = normalize(-vPosition);
   vec3 R = reflect(-L, N);
 
   float diff = max(dot(N, L), 0.0);
   float spec = pow(max(dot(V, R), 0.0), shininess);
 
-  fragColor = vec4(Ka + Kd * diff + Ks * spec, 1.0);
+  vec3 sunColor = vec3(1.0, 1.0, 0.9);
+
+
+  vec3 ambient = Ka * (0.5 + 0.5 * uLightIntensity);
+  vec3 diffuse = sunColor * Kd * diff * uLightIntensity;
+  vec3 specular = sunColor * Ks * spec * uLightIntensity;
+
+  fragColor = vec4(ambient + diffuse + specular, 1.0);
+
+  //fragColor = vec4(Ka + sunColor * Kd * diff + sunColor * Ks * spec, 1.0);
 }
 `;
 
@@ -124,12 +143,14 @@ gl.useProgram(program);
 
 const uModelView = gl.getUniformLocation(program, "uModelView");
 const uProjection = gl.getUniformLocation(program, "uProjection");
-const uLightPos = gl.getUniformLocation(program, "uLightPos");
+const uLightDir = gl.getUniformLocation(program, "uLightDir");
 const uMapping = gl.getUniformLocation(program, "uMapping");
+const uLightIntensity = gl.getUniformLocation(program, "uLightIntensity");
 
 gl.uniform1i(
     gl.getUniformLocation(program, "uTexture"), 0
 );
+gl.uniform1f(uLightIntensity, 1.0);
 
 function bindAttribute(name, data, size) {
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
@@ -229,8 +250,9 @@ function updateAnimatedTexture(animatedTexture) {
 }
 
 const groundMesh = createMesh(createPlane(50));
-const pondMesh = createMesh(createDisk(100));
+const pondMesh = createMesh(createPond(128, 6, 4));
 const mountainMesh = createMesh(createMountain(100, 22, 200));
+const sunMesh = createMesh(createSphere(100,3));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -253,12 +275,17 @@ const normalTexture = loadTexture("labb.gif");
 const groundTexture = loadTexture("ground.jpeg");
 const waterTexture = loadAnimatedTexture("water.mp4");
 const mountainTexture = loadTexture("mountain.jpeg");
+const sunTexture = loadAnimatedTexture("sun.mp4");
 
-const BUMP_MAPPING = 0, NORMAL_MAPPING = 1;
+const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
+
+const sunPosition = [0, 12, -40];
+
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.1, 0] },
-  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, 0, -60] }
+  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, 0, -60] },
+  { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
 ];
 
 gl.enable(gl.DEPTH_TEST);
@@ -278,15 +305,13 @@ function resizeCanvas() {
         Math.PI / 4,
         canvas.width / canvas.height,
         0.1,
-        100
+        200
     );
 }
 
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
-
-const lightWorld = [3, 4, 5];
 
 // Interactive controls
 let dragRotX = 0.3, dragRotY = 0;
@@ -316,17 +341,32 @@ document.addEventListener("keydown", e => {
   e.preventDefault();
 });
 
+function getDaylight() {
+    return Math.max(
+        0.0,
+        Math.min(1.0, (sunPosition[1] + 2) / 12)
+    );
+}
+
 // Render loop
 function render(time) {
   const t = time / 1000;
+  updateSun(t);
+  updateSky();
+
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   const view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
-  gl.uniform3fv(uLightPos, transformPoint(view, lightWorld));
 
 
   const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
+
+      // Update sunlight direction based on sun position
+  gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
+
+  gl.uniform1f(uLightIntensity, getDaylight());
+
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
@@ -342,5 +382,38 @@ function render(time) {
     gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
   }
   requestAnimationFrame(render);
+}
+function updateSun(t) {
+    const speed = 0.3;
+    const angle = t * speed;
+
+    sunPosition[0] = 0;
+    sunPosition[1] = 5 + 15 * Math.cos(angle);
+    sunPosition[2] = -65 - 10 * Math.sin(angle);
+}
+function updateSky() {
+    const daylight = getDaylight();
+
+    const dayColor = [0.53, 0.81, 0.92];
+    const sunsetColor = [0.95, 0.35, 0.12];
+    const nightColor = [0.01, 0.02, 0.06];
+
+    let from, to, factor;
+
+    if (daylight > 0.5) {
+        from = sunsetColor;
+        to = dayColor;
+        factor = (daylight - 0.5) * 2;
+    } else {
+        from = nightColor;
+        to = sunsetColor;
+        factor = daylight * 2;
+    }
+
+    const r = from[0] + (to[0] - from[0]) * factor;
+    const g = from[1] + (to[1] - from[1]) * factor;
+    const b = from[2] + (to[2] - from[2]) * factor;
+
+    gl.clearColor(r, g, b, 1.0);
 }
 requestAnimationFrame(render);
