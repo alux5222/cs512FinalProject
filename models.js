@@ -27,6 +27,47 @@ function createCube() {
   return { positions, normals, tangents, texCoords, indices };
 }
 
+function createPlane(size) {
+  const uRepeat = 10;
+  const vRepeat = 10;
+  const normals = new Float32Array([
+    0, 1, 0,
+    0, 1, 0,
+    0, 1, 0,
+    0, 1, 0
+  ]);
+
+  const tangents = new Float32Array([
+    1, 0, 0,
+    1, 0, 0,
+    1, 0, 0,
+    1, 0, 0
+  ]);
+
+  const texCoords = new Float32Array([
+    0, 0,
+    uRepeat, 0,
+    uRepeat, vRepeat,
+    0, vRepeat
+  ]);
+    // 4 corners of a 2x2 plane centered at (0, 0, 0) on the XZ floor
+  const vertices = new Float32Array([
+    -size, 0, -size,
+     size, 0, -size,
+     size, 0,  size,
+    -size, 0,  size
+  ]);
+
+  const indices = new Uint16Array([
+    0, 3, 2,
+    0, 2, 1 
+  ]);
+
+ 
+  return {
+    positions: vertices, normals, tangents, texCoords, indices
+  };
+}  
 
 function createCylinder(segments = 64, uRepeat = 3) {
   const positions = [], normals = [], tangents = [], texCoords = [], indices = [];

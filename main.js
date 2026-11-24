@@ -1,4 +1,3 @@
-import { parseGIF, decompressFrames } from 'https://cdn.jsdelivr.net/npm/gifuct-js@2.1.2/+esm';
 const VERTEX_SHADER = `#version 300 es
 in vec3 aPosition;
 in vec3 aNormal;
@@ -22,7 +21,7 @@ void main() {
   vNormal = transpose(inverse(mv)) * aNormal;
 
 
-  vTangent = normalize(mv * aTangent);
+  vTangent = mv * aTangent;
   vTexCoord = aTexCoord;
   gl_Position = uProjection * p;
 }
@@ -89,10 +88,13 @@ void main() {
   float spec = pow(max(dot(V, R), 0.0), shininess);
 
   fragColor = vec4(Ka + Kd * diff + Ks * spec, 1.0);
-}`;
+}
+`;
+
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
+
 function compile(type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -162,72 +164,8 @@ function createMesh({ positions, normals, tangents, texCoords, indices }) {
 }
 
 const cubeMesh = createMesh(createCube());
-// const cylinderMesh = createMesh(createCylinder());
-// const createSphereMesh = createMesh(createSphere(16));
-// const createOctagonMesh = createMesh(createOctagon());
-// const createTorusMesh = createMesh(createTorus(0.7, 0.25, 48, 24));
-
-async function loadAnimatedGif(url) {
-  const response = await fetch(url);
-  const buffer = await response.arrayBuffer();
-
-  const gif = parseGIF(buffer);
-  const frames = decompressFrames(gif, true);
-
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = gif.lsd.width;
-  canvas.height = gif.lsd.height;
-  const ctx = canvas.getContext("2d");
-
-  let currentFrame = 0;
-  let lastFrameTime = null;
-
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-
-  function update(time) {
-    if (lastFrameTime === null) lastFrameTime = time;
-
-    const delay = (frames[currentFrame].delay || 10) *1;
-
-    if (time - lastFrameTime >= delay) {
-      const frame = frames[currentFrame];
-
-      const imageData = new ImageData(
-        new Uint8ClampedArray(frame.patch),
-        frame.dims.width,
-        frame.dims.height
-      );
-
-      ctx.putImageData(imageData, frame.dims.left, frame.dims.top);
-
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        canvas
-      );
-
-      currentFrame = (currentFrame + 1) % frames.length;
-      lastFrameTime = time;
-    }
-
-    requestAnimationFrame(update);
-  }
-
-  requestAnimationFrame(update);
-  return texture;
-}
+const cylinderMesh = createMesh(createCylinder());
+const groundMesh = createMesh(createPlane(50));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -246,31 +184,16 @@ function loadTexture(url) {
   return texture;
 }
 
-let lightGifTexture;
-// let fishGifTexture;
-// let torusTexture;
+const brickTexture = loadTexture("labb.gif");
+const normalTexture = loadTexture("texture2.jpg");
+const groundTexture = loadTexture("ground.jpeg");
+
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1;
-let objects = [];
-async function initScene() {
-  // Load static texture right away
-  const normalTexture = loadTexture("aluminum.png");
-  const eggTexture = loadTexture("skin.jpg");
-  
-  // Await animated GIF loading so texture references are valid
-  lightGifTexture = await loadAnimatedGif("labb.gif");
-  // fishGifTexture = await loadAnimatedGif("fish.gif");
-  // torusTexture = await loadAnimatedGif("flow.gif");
-  // Define objects after textures are fully loaded and valid
-  objects = [
-    { mesh: cubeMesh, texture: lightGifTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] }
-    // { mesh: cylinderMesh, texture: fishGifTexture, mapping: BUMP_MAPPING, offset: [0.0, 1.5, 0] },
-    // { mesh: createSphereMesh, texture: eggTexture, mapping: BUMP_MAPPING, offset: [2.2, 1.5, 0] },
-    // { mesh: createOctagonMesh, texture: normalTexture, mapping: NORMAL_MAPPING, offset: [-1.2, -1.5, 0] },
-    // { mesh: createTorusMesh, texture: torusTexture, mapping: BUMP_MAPPING, offset: [1.2, -1.5, 0] }
-  ];
-}
-// Call init instead of loose calls
-const initSession = initScene();
+const objects = [
+  { mesh: cubeMesh, texture: brickTexture, mapping: BUMP_MAPPING, offset: [-1.8, 1, 0] },
+  { mesh: cylinderMesh, texture: normalTexture, mapping: NORMAL_MAPPING, offset: [1.8, 1, 0] },
+  { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] }
+];
 
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0, 0, 0, 1);
@@ -322,11 +245,6 @@ function render(time) {
   if (spinning) spinAngle += t - lastTime;
   lastTime = t;
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  if (objects.length === 0) {
-    requestAnimationFrame(render);
-    return; // Wait until textures are loaded
-  }
 
   const view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
