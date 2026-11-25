@@ -428,38 +428,73 @@ function createDisk(segments = 64) {
     };
 }
 
+
 function createPond(segments = 128, width = 6, depth = 4) {
-    const positions = [0, 0, 0];
-    const normals = [0, 1, 0];
-    const tangents = [1, 0, 0];
-    const texCoords = [0.5, 0.5];
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
     const indices = [];
 
-    for (let i = 0; i <= segments; i++) {
-        const angle = (i / segments) * Math.PI * 2;
+    const rings = 12;
 
-        // Generate an irregular radius
-        const radius =
-            1.0 +
-            0.22 * Math.sin(3 * angle) +
-            0.12 * Math.cos(2 * angle) +
-            0.08 * Math.sin(5 * angle);
+    // Generate concentric rings from the center to shoreline
+    for (let ring = 0; ring <= rings; ring++) {
 
-        const x = width * radius * Math.cos(angle);
-        const z = depth * radius * Math.sin(angle);
+        const r = ring / rings;
 
-        positions.push(x, 0, z);
-        normals.push(0, 1, 0);
-        tangents.push(1, 0, 0);
+        for (let i = 0; i <= segments; i++) {
 
-        texCoords.push(
-            0.5 + x / (2 * width * 1.42),
-            0.5 - z / (2 * depth * 1.42)
-        );
-    }
+            const angle = (i / segments) * Math.PI * 2;
 
-    for (let i = 1; i <= segments; i++) {
-        indices.push(0, i + 1, i);
+            // Smooth, irregular shoreline
+            const irregularity =
+                1.0 +
+                0.10 * Math.sin(3.0 * angle) +
+                0.06 * Math.cos(2.0 * angle) +
+                0.035 * Math.sin(5.0 * angle) +
+                0.025 * Math.cos(7.0 * angle);
+
+            const radius = r * irregularity;
+
+            const x = width * radius * Math.cos(angle);
+            const z = depth * radius * Math.sin(angle);
+
+            // Very subtle water surface movement
+            const y =
+                0.025 * Math.sin(x * 1.2) *
+                Math.cos(z * 1.4);
+
+            positions.push(x, y, z);
+
+            // Approximate upward-facing surface normal
+            normals.push(0, 1, 0);
+
+            tangents.push(1, 0, 0);
+
+            // Texture coordinates
+            texCoords.push(
+                0.5 + x / (width * 2),
+                0.5 - z / (depth * 2)
+            );
+
+            if (ring > 0 && i > 0) {
+
+                const current = ring * (segments + 1) + i;
+                const previous = current - (segments + 1);
+
+                indices.push(
+                    previous - 1,
+                    current - 1,
+                    previous,
+
+                    previous,
+                    current - 1,
+                    current
+                );
+            }
+        }
     }
 
     return {
@@ -471,36 +506,61 @@ function createPond(segments = 128, width = 6, depth = 4) {
     };
 }
 
+
 function createMountain(width = 50, depth = 12, segments = 100) {
+
     const positions = [];
     const normals = [];
     const tangents = [];
     const texCoords = [];
     const indices = [];
 
-    function getHeight(x, z) {
-        const ridge =
-            5.0 +
-            2.5 * Math.sin(x * 0.5) +
-            1.5 * Math.cos(x * 1.2) +
-            0.5 * Math.sin(x * 2.8);
-
-        const slope = Math.sin(Math.PI * z / depth);
-
-        return ridge * slope * (0.8 + 0.5 * Math.random());
+    // Deterministic terrain noise
+    function noise(x, z) {
+        return (
+            Math.sin(x * 0.35 + z * 0.2) *
+            Math.cos(z * 0.45 - x * 0.15) * 0.5 +
+            Math.sin(x * 0.8 + z * 0.6) * 0.25 +
+            Math.cos(x * 1.4 - z * 0.8) * 0.15
+        );
     }
 
+    function getHeight(x, z) {
+
+        // Several mountain peaks along the ridge
+        const peak1 = 8.0 * Math.exp(-Math.pow((x + 35) / 12, 2));
+        const peak2 = 11.0 * Math.exp(-Math.pow((x + 12) / 10, 2));
+        const peak3 = 9.0 * Math.exp(-Math.pow((x - 12) / 11, 2));
+        const peak4 = 12.0 * Math.exp(-Math.pow((x - 35) / 13, 2));
+
+        const ridge = peak1 + peak2 + peak3 + peak4;
+
+        // Fade mountain height towards the front and back
+        const depthFactor = Math.sin(Math.PI * z / depth);
+
+        // Add subtle rocky variation
+        const rockyDetail = noise(x, z) * 1.2;
+
+        return Math.max(
+            0,
+            ridge * depthFactor + rockyDetail * depthFactor
+        );
+    }
+
+    // Generate vertices
     for (let i = 0; i <= segments; i++) {
+
         for (let j = 0; j <= segments; j++) {
 
             const x = (j / segments - 0.5) * width;
             const z = (i / segments) * depth;
+
             const y = getHeight(x, z);
 
             positions.push(x, y, z);
 
-            // Calculate surface normals
-            const e = 0.01;
+            // Calculate consistent surface normals
+            const e = 0.05;
 
             const dx = (
                 getHeight(x + e, z) -
@@ -520,6 +580,7 @@ function createMountain(width = 50, depth = 12, segments = 100) {
                 -dz / length
             );
 
+            // Tangent
             const tangentLength = Math.hypot(1, dx);
 
             tangents.push(
@@ -528,14 +589,17 @@ function createMountain(width = 50, depth = 12, segments = 100) {
                 0
             );
 
+            // Texture coordinates
             texCoords.push(
-                j / segments * 8,
-                i / segments * 2
+                j / segments * 6,
+                i / segments * 3
             );
         }
     }
 
+    // Generate triangles
     for (let i = 0; i < segments; i++) {
+
         for (let j = 0; j < segments; j++) {
 
             const a = i * (segments + 1) + j;

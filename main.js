@@ -57,8 +57,9 @@ void main() {
 
 // Emissive texture for the sun
   if (uMapping == 3) {
-    fragColor = vec4(texture(uTexture, vTexCoord).rgb, 1.0);
-    return;
+      vec3 sun = texture(uTexture, vTexCoord).rgb;
+      fragColor = vec4(sun * 1.4, 1.0);
+      return;
   }
 
   // Tangent frame (T, B, N)
@@ -170,6 +171,99 @@ function createMesh({ positions, normals, tangents, texCoords, indices }) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
   return { vao, count: indices.length };
 }
+function terrainHeight(x, z) {
+    // Flat area underneath the pond
+    const pondRadius = 8;
+    if (Math.sqrt(x * x + z * z) < pondRadius) {
+        return 0;
+    }
+    // Natural rolling terrain
+    let h =
+        0.7 * Math.sin(x * 0.08) * Math.cos(z * 0.07) +
+        0.5 * Math.sin(x * 0.16 + z * 0.1) +
+        0.7 * Math.cos(z * 0.2);
+    // Raise terrain gradually towards the mountains
+    const mountainDistance = Math.abs(z + 60);
+    const mountainBase = 1.0 * Math.exp(-(mountainDistance * mountainDistance) / 500);
+    h += mountainBase;
+
+    return h;
+}
+function createTerrain(size, resolution) {
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+    const height = terrainHeight;
+
+    const step = size / resolution;
+
+    for (let z = 0; z <= resolution; z++) {
+        for (let x = 0; x <= resolution; x++) {
+
+            const px = -size / 2 + x * step;
+            const pz = -size / 2 + z * step;
+
+            const py = height(px, pz);
+
+            positions.push(px, py, pz);
+
+            // Calculate terrain normals
+            const hL = height(px - 0.1, pz);
+            const hR = height(px + 0.1, pz);
+            const hD = height(px, pz - 0.1);
+            const hU = height(px, pz + 0.1);
+
+            const nx = hL - hR;
+            const ny = 0.2;
+            const nz = hD - hU;
+
+            const length = Math.sqrt(
+                nx * nx + ny * ny + nz * nz
+            );
+
+            normals.push(
+                nx / length,
+                ny / length,
+                nz / length
+            );
+
+            tangents.push(1, 0, 0);
+
+            texCoords.push(
+                x / resolution * 10,
+                z / resolution * 10
+            );
+        }
+    }
+
+    for (let z = 0; z < resolution; z++) {
+        for (let x = 0; x < resolution; x++) {
+
+            const i = z * (resolution + 1) + x;
+
+            indices.push(
+                i,
+                i + resolution + 1,
+                i + 1,
+
+                i + 1,
+                i + resolution + 1,
+                i + resolution + 2
+            );
+        }
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
 
 function loadAnimatedTexture(url) {
     const texture = gl.createTexture();
@@ -190,17 +284,10 @@ function loadAnimatedTexture(url) {
     );
 
     // Texture parameters
-    gl.texParameteri(gl.TEXTURE_2D,
-        gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-
-    gl.texParameteri(gl.TEXTURE_2D,
-        gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-    gl.texParameteri(gl.TEXTURE_2D,
-        gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-
-    gl.texParameteri(gl.TEXTURE_2D,
-        gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
     // Create the video
     const video = document.createElement("video");
@@ -211,6 +298,7 @@ function loadAnimatedTexture(url) {
     video.loop = true;
     video.muted = true;
     video.playsInline = true;
+    video.playbackRate = 0.45;
 
     video.play().catch(console.warn);
 
@@ -249,10 +337,10 @@ function updateAnimatedTexture(animatedTexture) {
     animatedTexture.lastTime = video.currentTime;
 }
 
-const groundMesh = createMesh(createPlane(50));
-const pondMesh = createMesh(createPond(128, 6, 4));
-const mountainMesh = createMesh(createMountain(100, 22, 200));
-const sunMesh = createMesh(createSphere(100,3));
+const groundMesh = createMesh(createTerrain(100, 150));
+const pondMesh = createMesh(createPond(128, 6, 6.5));
+const mountainMesh = createMesh(createMountain(100, 22, 180));
+const sunMesh = createMesh(createSphere(100,4));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -270,12 +358,10 @@ function loadTexture(url) {
   image.src = url;
   return texture;
 }
-
-const normalTexture = loadTexture("labb.gif");
-const groundTexture = loadTexture("ground.jpeg");
-const waterTexture = loadAnimatedTexture("water.mp4");
-const mountainTexture = loadTexture("mountain.jpeg");
-const sunTexture = loadAnimatedTexture("sun.mp4");
+const groundTexture = loadTexture("images/ground.jpeg");
+const waterTexture = loadAnimatedTexture("images/water.mp4");
+const mountainTexture = loadTexture("images/mountain(1).jpg");
+const sunTexture = loadAnimatedTexture("images/sun.mp4");
 
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
 
@@ -283,8 +369,8 @@ const sunPosition = [0, 12, -40];
 
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
-  { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.1, 0] },
-  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, 0, -60] },
+  { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
+  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -60] },
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
 ];
 
@@ -342,9 +428,10 @@ document.addEventListener("keydown", e => {
 });
 
 function getDaylight() {
+
     return Math.max(
-        0.0,
-        Math.min(1.0, (sunPosition[1] + 2) / 12)
+        0.5,
+        Math.min(1.0, (sunPosition[1] + 5) / 30)
     );
 }
 
@@ -361,10 +448,32 @@ function render(time) {
 
 
   const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
-
       // Update sunlight direction based on sun position
-  gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
+  // gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
+  // Update sunlight direction
+const lightLength = Math.hypot(
+    sunPosition[0],
+    sunPosition[1],
+    sunPosition[2]
+);
 
+const lightDirection = [
+    sunPosition[0] / lightLength,
+    sunPosition[1] / lightLength,
+    sunPosition[2] / lightLength
+];
+const rotatedLight = transformPoint(rotation, [
+    lightDirection[0],
+    lightDirection[1],
+    lightDirection[2]
+]);
+
+// gl.uniform3fv(
+//     uLightDir,
+//     transformPoint(rotation, lightDirection)
+// );
+// gl.uniform3fv(uLightDir, rotatedLight);
+gl.uniform3fv(uLightDir, [0.0, 1.0, 0.0]);
   gl.uniform1f(uLightIntensity, getDaylight());
 
 
@@ -383,14 +492,20 @@ function render(time) {
   }
   requestAnimationFrame(render);
 }
-function updateSun(t) {
-    const speed = 0.3;
-    const angle = t * speed;
 
-    sunPosition[0] = 0;
-    sunPosition[1] = 5 + 15 * Math.cos(angle);
-    sunPosition[2] = -65 - 10 * Math.sin(angle);
+function updateSun(t) {
+    // Length of one complete day/night cycle
+    const dayDuration = 50;
+    // Sun angle
+    const angle = (t / dayDuration) * Math.PI * 2;
+    // Sun distance from the scene
+    const distance = 100;
+    // Sun moves across the horizon
+    sunPosition[0] = Math.cos(angle) * distance;
+    sunPosition[1] = Math.sin(angle) * 45;
+    sunPosition[2] = -65;
 }
+
 function updateSky() {
     const daylight = getDaylight();
 
