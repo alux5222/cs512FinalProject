@@ -265,6 +265,60 @@ function createTerrain(size, resolution) {
     };
 }
 
+function createGround(size, pondRadius, segments, tiles)
+{
+    const y = 0;
+    const n = Math.ceil(segments/4)*4;
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+
+    function addVertex(x, z)
+    {
+        positions.push(x, y, z);
+        normals.push(0, 1, 0);
+        tangents.push(1, 0, 0);
+        texCoords.push(((x+size)/(2*size))*tiles, ((z+size)/(2*size))*tiles);
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        addVertex(pondRadius*Math.cos(a), pondRadius*Math.sin(a));
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        const c = Math.cos(a);
+        const s = Math.sin(a);
+        const m = Math.max(Math.abs(c), Math.abs(s));
+        addVertex((size*c)/m, (size*s)/m);
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const j = (i+1)%n;
+        const innerI = i;
+        const innerJ = j;
+        const outerI = n + i;
+        const outerJ = n + j;
+        indices.push(innerI, outerJ, outerI);
+        indices.push(innerI, innerJ, outerJ);
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
+
 function loadAnimatedTexture(url) {
     const texture = gl.createTexture();
 
@@ -337,7 +391,7 @@ function updateAnimatedTexture(animatedTexture) {
     animatedTexture.lastTime = video.currentTime;
 }
 
-const groundMesh = createMesh(createTerrain(100, 150));
+const groundMesh = createMesh(createGround(50, 15, 128, 40));
 const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
@@ -358,7 +412,7 @@ function loadTexture(url) {
   image.src = url;
   return texture;
 }
-const groundTexture = loadTexture("images/ground.jpeg");
+const groundTexture = loadTexture("images/mudground.webp");
 const waterTexture = loadAnimatedTexture("images/water.mp4");
 const mountainTexture = loadTexture("images/mountain(1).jpg");
 const sunTexture = loadAnimatedTexture("images/sun.mp4");
@@ -369,7 +423,7 @@ const sunPosition = [0, 12, -40];
 
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
-  { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
+//   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
   { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -60] },
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
 ];
@@ -401,7 +455,7 @@ resizeCanvas();
 
 // Interactive controls
 let dragRotX = 0.3, dragRotY = 0;
-let camX = 0, camY = -2, camZ = -30;
+let camX = 0, camY = -2, camZ = -50;
 
 let mouseDown = false, lastX, lastY;
 canvas.addEventListener("mousedown", e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
