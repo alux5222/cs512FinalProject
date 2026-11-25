@@ -269,6 +269,205 @@ void main() {
 }
 `;
 
+const SKY_VERTEX_SHADER = `#version 300 es
+
+in vec3 aPosition;
+
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+
+out vec3 vDirection;
+
+void main() {
+
+    vDirection = aPosition;
+
+    gl_Position = uProjection *
+                  uModelView *
+                  vec4(aPosition, 1.0);
+
+    // Keep the sky at the farthest depth
+    gl_Position.z = gl_Position.w;
+}
+`;
+
+const SKY_FRAGMENT_SHADER = `#version 300 es
+
+precision highp float;
+
+in vec3 vDirection;
+
+uniform float uDaylight;
+uniform vec3 uSunDirection;
+// cloud uniforms
+uniform float uTime;
+uniform float uCloudCoverage;
+uniform float uCloudSpeed;
+
+out vec4 fragColor;
+
+// random hash function for generating noise
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+
+    // Random values at the four corners
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+
+    // Smooth interpolation
+    vec2 u = f * f * (3.0 - 2.0 * f);
+
+    return mix(
+        mix(a, b, u.x),
+        mix(c, d, u.x),
+        u.y
+    );
+}
+
+// Fractal Brownian Motion (fBm) for cloud generation
+float fbm(vec2 p) {
+
+    float value = 0.0;
+    float amplitude = 0.5;
+
+    for (int i = 0; i < 5; i++) {
+
+        value += amplitude * noise(p);
+
+        // Increase frequency
+        p *= 2.0;
+
+        // Reduce amplitude
+        amplitude *= 0.5;
+    }
+
+    return value;
+}
+
+void main() {
+
+    vec3 direction = normalize(vDirection);
+
+    // 0 at the horizon, 1 directly overhead
+    float height = clamp(direction.y, 0.0, 1.0);
+
+    // Daytime colors
+    vec3 dayHorizon = vec3(0.75, 0.88, 0.98);
+    vec3 dayZenith = vec3(0.10, 0.35, 0.75);
+
+    // Nighttime colors
+    vec3 nightHorizon = vec3(0.04, 0.06, 0.14);
+    vec3 nightZenith = vec3(0.005, 0.01, 0.04);
+
+    // Sunrise and sunset color
+    vec3 sunsetHorizon = vec3(1.0, 0.35, 0.08);
+
+    vec3 horizon = mix(
+        nightHorizon,
+        dayHorizon,
+        uDaylight
+    );
+
+    vec3 zenith = mix(
+        nightZenith,
+        dayZenith,
+        uDaylight
+    );
+
+    // Sunrise and sunset intensity
+    float twilight = 1.0 -
+        smoothstep(0.0, 0.35, abs(uSunDirection.y));
+
+    // Concentrate sunset colors toward the sun
+    float sunFacing = max(
+        dot(direction, uSunDirection), 0.0
+    );
+
+    horizon = mix(
+        horizon,
+        sunsetHorizon,
+        twilight * pow(sunFacing, 2.0)
+    );
+
+    // Atmospheric gradient
+    vec3 skyColor = mix(
+        horizon,
+        zenith,
+        pow(height, 0.6)
+    );
+
+    // Only generate clouds above the horizon
+    if (direction.y > 0.0) {
+
+      // Project the viewing direction onto a cloud layer
+      vec2 cloudUV =
+          direction.xz / max(direction.y, 0.08);
+
+      // Cloud formation scale
+      cloudUV *= 1.5;
+
+      // Animate clouds using wind
+      cloudUV += vec2(
+          uTime * uCloudSpeed,
+          uTime * uCloudSpeed * 0.3
+      );
+
+      // Generate procedural cloud density
+      float cloudNoise = fbm(cloudUV);
+
+      // Convert noise into cloud formations
+      float cloud = smoothstep(
+          1.0 - uCloudCoverage,
+          1.0 - uCloudCoverage + 0.15,
+          cloudNoise
+      );
+
+      // Fade clouds near the horizon
+      cloud *= smoothstep(
+          0.03, 0.15, direction.y
+      );
+
+      // Cloud colors
+      vec3 dayCloudColor = vec3(0.98, 0.98, 1.0);
+      vec3 nightCloudColor = vec3(0.06, 0.07, 0.12);
+      vec3 sunsetCloudColor = vec3(1.0, 0.55, 0.3);
+
+      vec3 cloudColor = mix(
+          nightCloudColor,
+          dayCloudColor,
+          uDaylight
+      );
+
+      // Warm cloud colors near sunrise and sunset
+      cloudColor = mix(
+          cloudColor,
+          sunsetCloudColor,
+          twilight * sunFacing * 0.8
+      );
+
+      // Simulate variations in cloud density
+      cloudColor *= 0.75 + 0.25 * cloudNoise;
+
+      // Blend clouds with atmospheric sky
+      skyColor = mix(
+          skyColor,
+          cloudColor,
+          cloud * 0.9
+      );
+    }
+
+    fragColor = vec4(skyColor, 1.0);
+}
+`;
+
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -308,6 +507,11 @@ const shadowProgram = createProgram(
     SHADOW_FRAGMENT_SHADER
 );
 
+const skyProgram = createProgram(
+    SKY_VERTEX_SHADER,
+    SKY_FRAGMENT_SHADER
+);
+
 gl.useProgram(program);
 
 const uModelView = gl.getUniformLocation(program, "uModelView");
@@ -335,6 +539,16 @@ const starUniforms = {
 const shadowUniforms = {
   uLightSpaceMatrix: gl.getUniformLocation(shadowProgram, "uLightSpaceMatrix"),
   uModel: gl.getUniformLocation(shadowProgram, "uModel")
+};
+
+const skyUniforms = {
+  uModelView: gl.getUniformLocation(skyProgram, "uModelView"),
+  uProjection: gl.getUniformLocation(skyProgram, "uProjection"),
+  uDaylight: gl.getUniformLocation(skyProgram, "uDaylight"),
+  uSunDirection: gl.getUniformLocation(skyProgram, "uSunDirection"),
+  // cloud uniforms
+  uCloudCoverage: gl.getUniformLocation(skyProgram, "uCloudCoverage"),
+  uCloudSpeed: gl.getUniformLocation(skyProgram, "uCloudSpeed"),
 };
 
 gl.uniform1i(
@@ -560,6 +774,8 @@ const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
 const moonMesh = createMesh(createSphere(100,4));
 const starMesh = createStarMesh(createStars(2500, 130));
+const skyMesh = createMesh(createSphere(64, 200));
+
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -953,6 +1169,69 @@ function renderShadowMap(lightSpaceMatrix) {
     gl.useProgram(program);
 }
 
+function drawSky(t) {
+
+    gl.useProgram(skyProgram);
+
+    // Sky follows camera rotation, not translation
+    gl.uniformMatrix4fv(
+        skyUniforms.uModelView,
+        false,
+        cameraTurn
+    );
+
+    gl.uniformMatrix4fv(
+        skyUniforms.uProjection,
+        false,
+        projection
+    );
+
+    gl.uniform1f(
+        skyUniforms.uDaylight,
+        getDaylight()
+    );
+    // cloud parameters
+    gl.uniform1f(skyUniforms.uTime, t);
+    gl.uniform1f(skyUniforms.uCloudCoverage, 0.55);
+    gl.uniform1f(skyUniforms.uCloudSpeed, 0.04);
+
+    // World-space sun direction
+    const length = Math.hypot(...sunPosition);
+
+    const sunDirection = sunPosition.map(
+        v => v / length
+    );
+
+    // Disable sunset glow during nighttime
+    gl.uniform3fv(
+        skyUniforms.uSunDirection,
+        isDaytime ? sunDirection : [0, -1, 0]
+    );
+
+    // Render the background without writing depth
+    gl.depthMask(false);
+    gl.depthFunc(gl.LEQUAL);
+
+    gl.disable(gl.CULL_FACE);
+
+    gl.bindVertexArray(skyMesh.vao);
+
+    gl.drawElements(
+        gl.TRIANGLES,
+        skyMesh.count,
+        gl.UNSIGNED_SHORT,
+        0
+    );
+
+    gl.bindVertexArray(null);
+
+    // Restore rendering state
+    gl.depthMask(true);
+    gl.depthFunc(gl.LESS);
+
+    gl.useProgram(program);
+}
+
 function drawStars(t) {
 
     // Stars gradually appear during sunset
@@ -1066,6 +1345,9 @@ function render(time) {
 
   view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
   cameraTurn = multiply(rotateX(lookUp), rotation);
+
+  drawSky(t);
+
   gl.uniformMatrix4fv(uProjection, false, projection);
 
   // update the lighting based on the sun and moon positions
