@@ -345,6 +345,57 @@ function createGround(size, pondRadius, segments, tiles)
     };
 }
 
+function createCircularPavement(innerRadius, outerRadius, segments, uvScale)
+{
+    const y = 0;
+    const n = Math.ceil(segments/4)*4;
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+
+    function addVertex(x, z)
+    {
+        positions.push(x, y, z);
+        normals.push(0, 1, 0);
+        tangents.push(1, 0, 0);
+        texCoords.push(x*uvScale, z*uvScale);
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        addVertex(innerRadius*Math.cos(a), innerRadius*Math.sin(a));
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        addVertex(outerRadius*Math.cos(a), outerRadius*Math.sin(a));
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const j = (i+1)%n;
+        const innerI = i;
+        const innerJ = j;
+        const outerI = n + i;
+        const outerJ = n + j;
+        indices.push(innerI, outerJ, outerI);
+        indices.push(innerI, innerJ, outerJ);
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
+
 function loadAnimatedTexture(url) {
     const texture = gl.createTexture();
 
@@ -417,7 +468,9 @@ function updateAnimatedTexture(animatedTexture) {
     animatedTexture.lastTime = video.currentTime;
 }
 
-const groundMesh = createMesh(createGround(50, 15, 128, 40));
+const PondRadius = 15;
+const groundMesh = createMesh(createGround(50, PondRadius, 128, 40));
+const circularPavementMesh = createMesh(createCircularPavement(PondRadius+1, PondRadius+1+8, 128, 0.2));
 const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
@@ -439,6 +492,7 @@ function loadTexture(url) {
   return texture;
 }
 const groundTexture = loadTexture("images/mudground.webp");
+const pavementTexture = loadTexture("images/pavement.webp");
 const waterTexture = loadAnimatedTexture("images/water.mp4");
 const mountainTexture = loadTexture("images/mountain(1).jpg");
 const sunTexture = loadAnimatedTexture("images/sun.mp4");
@@ -449,6 +503,7 @@ const sunPosition = [0, 12, -40];
 
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
+  { mesh: circularPavementMesh, texture: pavementTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
 //   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
   { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -60] },
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
