@@ -39,7 +39,8 @@ in vec2 vTexCoord;
 //uniform vec3 uLightPos;
 uniform vec3 uLightDir;
 uniform sampler2D uTexture;
-uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping, 3 = animated texture
+uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping, 2 = solid color, 3 = animated texture, 4 = glowing color (lamps), 5 = aspen leaves, 6 = aspen bark
+uniform vec3 uColor;   // used by modes 2 and 4
 uniform float uLightIntensity;
 
 out vec4 fragColor;
@@ -98,7 +99,6 @@ void main() {
     // Aspen bark: plain texture 
     baseColor = texture(uTexture, vTexCoord).rgb;
     n = vec3(0.0, 0.0, 1.0);
-  } else {
   } else {
     // Normal mapping: the texture stores the tangent-space normal in [0, 1]
     n = normalize(texture(uTexture, vTexCoord).rgb * 2.0 - 1.0);
