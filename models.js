@@ -956,7 +956,7 @@ function createStars(count = 1500, radius = 130) {
             radius * z
         );
 
-        sizes.push(2.0 + Math.random() * 3.0);
+        sizes.push(2.0 + Math.random() * 5.0);
 
         phases.push(Math.random() * Math.PI * 2);
     }
