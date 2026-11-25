@@ -374,8 +374,9 @@ const MIN_ZOOM = -42, MAX_ZOOM = -5;   // -42: when you spin around, the camera 
 
 function keepCameraAboveGround() {
   // up/down drag: only between level and looking down
-  if (dragRotX < MIN_TILT) dragRotX = MIN_TILT;
+  if (dragRotX < MIN_TILT - MAX_LOOK_UP) dragRotX = MIN_TILT - MAX_LOOK_UP;
   if (dragRotX > MAX_TILT) dragRotX = MAX_TILT;
+  const tilt = Math.max(dragRotX, MIN_TILT);   // looking up turns the head, it doesn't lower the camera
 
   // zoom: not too far, and not past the middle of the scene
   if (camZ < MIN_ZOOM) camZ = MIN_ZOOM;
@@ -417,6 +418,7 @@ document.addEventListener("keydown", e => {
 // The camera matrices, updated at the start of every frame in render()
 let view = translate(camX, camY, camZ);
 let rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
+let cameraTurn = rotation;   // every rotation of the camera (used to turn the sun direction)
 
 // Draw one tree / street light part: model matrix -> camera -> shader
 function drawPart(part, model) {
@@ -444,10 +446,13 @@ function render(time) {
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  view = translate(camX, camY, camZ);
+  // camera: spin and tilt around the scene, then (if dragged past level) look up
+  const tilt = Math.max(dragRotX, MIN_TILT);
+  const lookUp = Math.min(dragRotX - MIN_TILT, 0);       // 0, or negative when looking up
+  rotation = multiply(rotateX(tilt), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
+  view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
+  cameraTurn = multiply(rotateX(lookUp), rotation);
   gl.uniformMatrix4fv(uProjection, false, projection);
-
-  rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
 
   gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
   gl.uniform1f(uLightIntensity, getDaylight());
