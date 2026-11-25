@@ -734,3 +734,202 @@ function createLeafCluster(leafCount, rx, ry, rz) {
     indices: new Uint16Array(indices)
   };
 }
+
+function terrainHeight(x, z) {
+    // Flat area underneath the pond
+    const pondRadius = 8;
+    if (Math.sqrt(x * x + z * z) < pondRadius) {
+        return 0;
+    }
+    // Natural rolling terrain
+    let h =
+        0.7 * Math.sin(x * 0.08) * Math.cos(z * 0.07) +
+        0.5 * Math.sin(x * 0.16 + z * 0.1) +
+        0.7 * Math.cos(z * 0.2);
+    // Raise terrain gradually towards the mountains
+    const mountainDistance = Math.abs(z + 60);
+    const mountainBase = 1.0 * Math.exp(-(mountainDistance * mountainDistance) / 500);
+    h += mountainBase;
+
+    return h;
+}
+function createTerrain(size, resolution) {
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+    const height = terrainHeight;
+
+    const step = size / resolution;
+
+    for (let z = 0; z <= resolution; z++) {
+        for (let x = 0; x <= resolution; x++) {
+
+            const px = -size / 2 + x * step;
+            const pz = -size / 2 + z * step;
+
+            const py = height(px, pz);
+
+            positions.push(px, py, pz);
+
+            // Calculate terrain normals
+            const hL = height(px - 0.1, pz);
+            const hR = height(px + 0.1, pz);
+            const hD = height(px, pz - 0.1);
+            const hU = height(px, pz + 0.1);
+
+            const nx = hL - hR;
+            const ny = 0.2;
+            const nz = hD - hU;
+
+            const length = Math.sqrt(
+                nx * nx + ny * ny + nz * nz
+            );
+
+            normals.push(
+                nx / length,
+                ny / length,
+                nz / length
+            );
+
+            tangents.push(1, 0, 0);
+
+            texCoords.push(
+                x / resolution * 10,
+                z / resolution * 10
+            );
+        }
+    }
+
+    for (let z = 0; z < resolution; z++) {
+        for (let x = 0; x < resolution; x++) {
+
+            const i = z * (resolution + 1) + x;
+
+            indices.push(
+                i,
+                i + resolution + 1,
+                i + 1,
+
+                i + 1,
+                i + resolution + 1,
+                i + resolution + 2
+            );
+        }
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
+
+function createGround(size, pondRadius, segments, tiles)
+{
+    const y = 0;
+    const n = Math.ceil(segments/4)*4;
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+
+    function addVertex(x, z)
+    {
+        positions.push(x, y, z);
+        normals.push(0, 1, 0);
+        tangents.push(1, 0, 0);
+        texCoords.push(((x+size)/(2*size))*tiles, ((z+size)/(2*size))*tiles);
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        addVertex(pondRadius*Math.cos(a), pondRadius*Math.sin(a));
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        const c = Math.cos(a);
+        const s = Math.sin(a);
+        const m = Math.max(Math.abs(c), Math.abs(s));
+        addVertex((size*c)/m, (size*s)/m);
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const j = (i+1)%n;
+        const innerI = i;
+        const innerJ = j;
+        const outerI = n + i;
+        const outerJ = n + j;
+        indices.push(innerI, outerJ, outerI);
+        indices.push(innerI, innerJ, outerJ);
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
+
+function createCircularPavement(innerRadius, outerRadius, segments, uvScale)
+{
+    const y = 0;
+    const n = Math.ceil(segments/4)*4;
+
+    const positions = [];
+    const normals = [];
+    const tangents = [];
+    const texCoords = [];
+    const indices = [];
+
+    function addVertex(x, z)
+    {
+        positions.push(x, y, z);
+        normals.push(0, 1, 0);
+        tangents.push(1, 0, 0);
+        texCoords.push(x*uvScale, z*uvScale);
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        addVertex(innerRadius*Math.cos(a), innerRadius*Math.sin(a));
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const a = Math.PI/4 + (i*2*Math.PI)/n;
+        addVertex(outerRadius*Math.cos(a), outerRadius*Math.sin(a));
+    }
+
+    for(let i=0; i<n; i++)
+    {
+        const j = (i+1)%n;
+        const innerI = i;
+        const innerJ = j;
+        const outerI = n + i;
+        const outerJ = n + j;
+        indices.push(innerI, outerJ, outerI);
+        indices.push(innerI, innerJ, outerJ);
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        tangents: new Float32Array(tangents),
+        texCoords: new Float32Array(texCoords),
+        indices: new Uint16Array(indices)
+    };
+}
