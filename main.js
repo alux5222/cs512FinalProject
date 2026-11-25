@@ -382,6 +382,7 @@ const MIN_TILT = 0.12;     // a little above level with the ground (radians)
 const MAX_TILT = 1.4;      // looking almost straight down
 const MIN_HEIGHT = 2;      // the camera stays at least this high above the ground
 const MIN_ZOOM = -42, MAX_ZOOM = -5;   // -42: when you spin around, the camera stays in front of the mountains (they start 38 behind the middle)
+const MAX_LOOK_UP = 1.2;   // how far past level the camera can look up (about 70 degrees)
 
 function keepCameraAboveGround() {
   // up/down drag: only between level and looking down
@@ -394,9 +395,9 @@ function keepCameraAboveGround() {
   if (camZ > MAX_ZOOM) camZ = MAX_ZOOM;
 
   // height of the camera above the ground (y = 0): undo the tilt and the move
-  const height = -camY * Math.cos(dragRotX) - camZ * Math.sin(dragRotX);
+  const height = -camY * Math.cos(tilt) - camZ * Math.sin(tilt);
   if (height < MIN_HEIGHT) {
-    camY = -(MIN_HEIGHT + camZ * Math.sin(dragRotX)) / Math.cos(dragRotX);   // lift it back up
+    camY = -(MIN_HEIGHT + camZ * Math.sin(tilt)) / Math.cos(tilt);   // lift it back up
   }
 }
 
@@ -460,6 +461,7 @@ function render(time) {
   updateSunAndMoon(t);
   updateSky();
 
+  keepCameraAboveGround(); 
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -470,10 +472,8 @@ function render(time) {
   view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
   cameraTurn = multiply(rotateX(lookUp), rotation);
   gl.uniformMatrix4fv(uProjection, false, projection);
-  rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
 
-  // update the lighting based on the sun and moon positions
-  updateLighting();
+  updateLighting();   // sun by day, moon by night: direction, color and brightness
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
@@ -558,7 +558,7 @@ function updateLighting() {
 
     gl.uniform3fv(
         uLightDir,
-        transformPoint(rotation, lightPosition)
+        transformPoint(cameraTurn, lightPosition)
     );
 
     gl.uniform3fv(uLightColor, lightColor);
