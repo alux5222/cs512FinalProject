@@ -249,6 +249,13 @@ const uLampPos = gl.getUniformLocation(program, "uLampPos");
 const uLampColor = gl.getUniformLocation(program, "uLampColor");
 const uLampStrength = gl.getUniformLocation(program, "uLampStrength");
 
+const starUniforms = {
+    uModelView: gl.getUniformLocation(starProgram, "uModelView"),
+    uProjection: gl.getUniformLocation(starProgram, "uProjection"),
+    uTime: gl.getUniformLocation(starProgram, "uTime"),
+    uVisibility: gl.getUniformLocation(starProgram, "uVisibility")
+};
+
 gl.uniform1i(
     gl.getUniformLocation(program, "uTexture"), 0
 );
@@ -398,7 +405,7 @@ const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
 const moonMesh = createMesh(createSphere(100,4));
-const starMesh = createStarMesh(createStars(1500, 130));
+const starMesh = createStarMesh(createStars(2500, 130));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -603,54 +610,6 @@ function getDaylight() {
     );
 }
 
-// Render loop
-function render(time) {
-  const t = time / 1000;
-
-
-  updateSunAndMoon(t);
-  updateSky();
-
-  keepCameraAboveGround(); 
-
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  // camera: spin and tilt around the scene, then (if dragged past level) look up
-  const tilt = Math.max(dragRotX, MIN_TILT);
-  const lookUp = Math.min(dragRotX - MIN_TILT, 0);       // 0, or negative when looking up
-  rotation = multiply(rotateX(tilt), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
-  view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
-  cameraTurn = multiply(rotateX(lookUp), rotation);
-  gl.uniformMatrix4fv(uProjection, false, projection);
-
-  updateLighting();   // sun by day, moon by night: direction, color and brightness
-  updateLamps();      // street lamps: on at night
-
-  gl.activeTexture(gl.TEXTURE0);
-  for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
-
-    // Only show the sun during daytime
-    if (mesh === sunMesh && !isDaytime) continue;
-    // Only show the moon during nighttime
-    if (mesh === moonMesh && isDaytime) continue;
-    if (animatedTexture) updateAnimatedTexture(animatedTexture);
-
-    const model = multiply(rotation, translate(...offset));
-    gl.uniformMatrix4fv(uModelView, false, multiply(view,model));
-
-    gl.uniform1i(uMapping, mapping);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.bindVertexArray(mesh.vao);
-    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
-  }
-
-  // trees and street lights (trees.js)
-  drawForest(forest, treeParts, drawPart);
-  drawLamps(lamps, treeParts, drawPart);
-  
-  requestAnimationFrame(render);
-}
-
 
 // update the sun and moon positions based on the time of day
 function updateSunAndMoon(t) {
@@ -726,7 +685,7 @@ function drawStars(t) {
 
     // Switch to the star shader
     gl.useProgram(starProgram);
-    gl.uniformMatrix4fv(starUniforms.uModelView, false, multiply(view, rotation));
+    gl.uniformMatrix4fv(starUniforms.uModelView, false, cameraTurn);
     gl.uniformMatrix4fv(starUniforms.uProjection, false, projection);
     gl.uniform1f(starUniforms.uTime, t);
     gl.uniform1f(starUniforms.uVisibility, visibility);
@@ -807,6 +766,8 @@ function render(time) {
   // update the lighting based on the sun and moon positions
   updateLighting();
 
+  updateLamps();
+
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
 
@@ -816,8 +777,15 @@ function render(time) {
     if (mesh === moonMesh && isDaytime) continue;
     if (animatedTexture) updateAnimatedTexture(animatedTexture);
 
-    const model = multiply(rotation, translate(...offset));
-    gl.uniformMatrix4fv(uModelView, false, multiply(view,model));
+    // sun and moon is independent of the camera, so they don't rotate with it. The rest of the scene does rotate with the camera.
+    if (mesh === sunMesh || mesh === moonMesh) {
+      const model = multiply(cameraTurn, translate(...offset));
+      gl.uniformMatrix4fv(uModelView, false, model);
+    } else {
+      const model = multiply(rotation, translate(...offset));
+      gl.uniformMatrix4fv(uModelView, false, multiply(view, model));
+
+    }
 
     gl.uniform1i(uMapping, mapping);
     gl.bindTexture(gl.TEXTURE_2D, texture);
