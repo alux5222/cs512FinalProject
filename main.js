@@ -276,6 +276,7 @@ const circularPavementMesh = createMesh(createCircularPavement(PondRadius+1, Pon
 const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
+const moonMesh = createMesh(createSphere(100,4));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -298,17 +299,21 @@ const pavementTexture = loadTexture("images/pavement.webp");
 const waterTexture = loadAnimatedTexture("images/water.mp4");
 const mountainTexture = loadTexture("images/mountain(1).jpg");
 const sunTexture = loadAnimatedTexture("images/sun.mp4");
+const moonTexture = loadTexture("images/moon.jpg");
 
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
 
 const sunPosition = [0, 12, -40];
+const moonPosition = [0, 0, 85];
 
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
   { mesh: circularPavementMesh, texture: pavementTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
 //   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
   { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -60] },
-  { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
+  { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition },
+  { mesh: moonMesh, texture: moonTexture, mapping: EMISSIVE_MAPPING, offset: moonPosition }
+
 ];
 
 // ---------- Tree parts (trees.js builds the trees and street lights out of these) ----------
@@ -441,6 +446,7 @@ function render(time) {
   const t = time / 1000;
   updateSun(t);
   updateSky();
+  updateMoon();
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -483,6 +489,12 @@ function updateSun(t) {
     sunPosition[0] = 0;
     sunPosition[1] = radius * Math.sin(angle);
     sunPosition[2] = -radius * Math.cos(angle);
+}
+
+function updateMoon() {
+    moonPosition[0] = -sunPosition[0];
+    moonPosition[1] = -sunPosition[1];
+    moonPosition[2] = -sunPosition[2];
 }
 
 function updateSky() {
