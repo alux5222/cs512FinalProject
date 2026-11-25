@@ -256,13 +256,6 @@ const starUniforms = {
     uVisibility: gl.getUniformLocation(starProgram, "uVisibility")
 };
 
-const starUniforms = {
-    uModelView: gl.getUniformLocation(starProgram, "uModelView"),
-    uProjection: gl.getUniformLocation(starProgram, "uProjection"),
-    uTime: gl.getUniformLocation(starProgram, "uTime"),
-    uVisibility: gl.getUniformLocation(starProgram, "uVisibility")
-};
-
 gl.uniform1i(
     gl.getUniformLocation(program, "uTexture"), 0
 );
