@@ -43,6 +43,9 @@ uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping, 2 = solid color,
 uniform vec3 uColor;   // used by modes 2 and 4
 uniform float uLightIntensity;
 
+// added for moon and sun
+uniform vec3 uLightColor;
+
 out vec4 fragColor;
 
 const float bumpScale = 3.0;
@@ -123,16 +126,11 @@ void main() {
   if (uMapping == 6) diff = 0.5 + 0.5 * dot(N, L);
   float spec = pow(max(dot(V, R), 0.0), shininess);
 
-  vec3 sunColor = vec3(1.0, 1.0, 0.9);
-
-
   vec3 ambient = Ka * (0.5 + 0.5 * uLightIntensity);
-  vec3 diffuse = sunColor * Kd * diff * uLightIntensity;
-  vec3 specular = sunColor * Ks * spec * uLightIntensity;
+  vec3 diffuse = uLightColor * Kd * diff * uLightIntensity;
+  vec3 specular = uLightColor * Ks * spec * uLightIntensity;
 
   fragColor = vec4(ambient + diffuse + specular, 1.0);
-
-  //fragColor = vec4(Ka + sunColor * Kd * diff + sunColor * Ks * spec, 1.0);
 }
 `;
 
@@ -172,6 +170,7 @@ const uProjection = gl.getUniformLocation(program, "uProjection");
 const uLightDir = gl.getUniformLocation(program, "uLightDir");
 const uMapping = gl.getUniformLocation(program, "uMapping");
 const uLightIntensity = gl.getUniformLocation(program, "uLightIntensity");
+const uLightColor = gl.getUniformLocation(program, "uLightColor");
 const uColor = gl.getUniformLocation(program, "uColor");
 
 gl.uniform1i(
@@ -452,11 +451,10 @@ function render(time) {
 
   view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
-
   rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
 
-  gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
-  gl.uniform1f(uLightIntensity, getDaylight());
+  // update the lighting based on the sun and moon positions
+  updateLighting();
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
@@ -495,6 +493,37 @@ function updateMoon() {
     moonPosition[0] = -sunPosition[0];
     moonPosition[1] = -sunPosition[1];
     moonPosition[2] = -sunPosition[2];
+}
+//This function will determine which object (sun or moon) should illuminate the environment.
+function updateLighting() {
+    const daylight = getDaylight();
+
+    const sunColor = [1.0, 1.0, 0.9];
+    const moonColor = [0.45, 0.55, 0.85];
+
+    let lightPosition;
+    let lightColor;
+    let intensity;
+
+    if (sunPosition[1] >= 0) {
+        // Daytime sunlight
+        lightPosition = sunPosition;
+        lightColor = sunColor;
+        intensity = daylight;
+    } else {
+        // Nighttime moonlight
+        lightPosition = moonPosition;
+        lightColor = moonColor;
+        intensity = 0.50 * (1.0 - daylight);
+    }
+
+    gl.uniform3fv(
+        uLightDir,
+        transformPoint(rotation, lightPosition)
+    );
+
+    gl.uniform3fv(uLightColor, lightColor);
+    gl.uniform1f(uLightIntensity, intensity);
 }
 
 function updateSky() {
