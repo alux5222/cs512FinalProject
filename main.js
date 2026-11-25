@@ -804,8 +804,8 @@ const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
 
 const sunPosition = [0, 12, -40];
 const moonPosition = [0, 0, 85];
-const DAY_DURATION = 30;
-const NIGHT_DURATION = 30;
+const DAY_DURATION = 50;
+const NIGHT_DURATION = 50;
 
 const HORIZONTAL_RADIUS = 85;
 const VERTICAL_RADIUS = 85;
