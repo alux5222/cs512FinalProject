@@ -416,7 +416,7 @@ const DAY_DURATION = 30;
 const NIGHT_DURATION = 30;
 
 const HORIZONTAL_RADIUS = 85;
-const VERTICAL_RADIUS = 35;
+const VERTICAL_RADIUS = 85;
 
 let isDaytime = true;
 
@@ -632,40 +632,20 @@ function drawStars(t) {
 
     // Stars gradually appear during sunset
     const visibility = 1.0 - getDaylight();
-
     if (visibility <= 0.01) {
         return;
     }
 
     // Switch to the star shader
     gl.useProgram(starProgram);
-
-    gl.uniformMatrix4fv(
-        starUniforms.modelView,
-        false,
-        multiply(view, rotation)
-    );
-
-    gl.uniformMatrix4fv(
-        starUniforms.projection,
-        false,
-        projection
-    );
-
-    gl.uniform1f(starUniforms.time, t);
-
-    gl.uniform1f(
-        starUniforms.visibility,
-        visibility
-    );
-
+    gl.uniformMatrix4fv(starUniforms.uModelView, false, multiply(view, rotation));
+    gl.uniformMatrix4fv(starUniforms.uProjection, false, projection);
+    gl.uniform1f(starUniforms.uTime, t);
+    gl.uniform1f(starUniforms.uVisibility, visibility);
     // Enable transparency
     gl.enable(gl.BLEND);
 
-    gl.blendFunc(
-        gl.SRC_ALPHA,
-        gl.ONE_MINUS_SRC_ALPHA
-    );
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     // Prevent transparent stars from writing depth
     gl.depthMask(false);
@@ -729,11 +709,12 @@ function render(time) {
   // camera: spin and tilt around the scene, then (if dragged past level) look up
   const tilt = Math.max(dragRotX, MIN_TILT);
   const lookUp = Math.min(dragRotX - MIN_TILT, 0);       // 0, or negative when looking up
+
   rotation = multiply(rotateX(tilt), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
+
   view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
   cameraTurn = multiply(rotateX(lookUp), rotation);
   gl.uniformMatrix4fv(uProjection, false, projection);
-  rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
 
   // update the lighting based on the sun and moon positions
   updateLighting();
