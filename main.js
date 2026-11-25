@@ -364,7 +364,29 @@ resizeCanvas();
 
 // Interactive controls
 let dragRotX = 0.3, dragRotY = 0;
-let camX = 0, camY = -2, camZ = -50;
+let camX = 0, camY = -2, camZ = -40;
+
+// Camera limits: never look from below the ground
+const MIN_TILT = 0.12;     // a little above level with the ground (radians)
+const MAX_TILT = 1.4;      // looking almost straight down
+const MIN_HEIGHT = 2;      // the camera stays at least this high above the ground
+const MIN_ZOOM = -42, MAX_ZOOM = -5;   // -42: when you spin around, the camera stays in front of the mountains (they start 38 behind the middle)
+
+function keepCameraAboveGround() {
+  // up/down drag: only between level and looking down
+  if (dragRotX < MIN_TILT) dragRotX = MIN_TILT;
+  if (dragRotX > MAX_TILT) dragRotX = MAX_TILT;
+
+  // zoom: not too far, and not past the middle of the scene
+  if (camZ < MIN_ZOOM) camZ = MIN_ZOOM;
+  if (camZ > MAX_ZOOM) camZ = MAX_ZOOM;
+
+  // height of the camera above the ground (y = 0): undo the tilt and the move
+  const height = -camY * Math.cos(dragRotX) - camZ * Math.sin(dragRotX);
+  if (height < MIN_HEIGHT) {
+    camY = -(MIN_HEIGHT + camZ * Math.sin(dragRotX)) / Math.cos(dragRotX);   // lift it back up
+  }
+}
 
 let mouseDown = false, lastX, lastY;
 canvas.addEventListener("mousedown", e => { mouseDown = true; lastX = e.clientX; lastY = e.clientY; });
@@ -374,6 +396,7 @@ window.addEventListener("mousemove", e => {
   dragRotY += (e.clientX - lastX) * 0.01;
   dragRotX += (e.clientY - lastY) * 0.01;
   lastX = e.clientX; lastY = e.clientY;
+  keepCameraAboveGround();
 });
 
 document.addEventListener("keydown", e => {
@@ -387,12 +410,13 @@ document.addEventListener("keydown", e => {
     case "s": camZ -= step; break;
     default: return;
   }
+  keepCameraAboveGround();
   e.preventDefault();
 });
 
 // The camera matrices, updated at the start of every frame in render()
 let view = translate(camX, camY, camZ);
-let rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
+let rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
 
 // Draw one tree / street light part: model matrix -> camera -> shader
 function drawPart(part, model) {
@@ -425,7 +449,7 @@ function render(time) {
   gl.uniformMatrix4fv(uProjection, false, projection);
 
 
-  rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
+  rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
       // Update sunlight direction based on sun position
   // gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
   // Update sunlight direction
