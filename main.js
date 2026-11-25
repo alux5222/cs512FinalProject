@@ -46,6 +46,12 @@ uniform float uLightIntensity;
 // added for moon and sun
 uniform vec3 uLightColor;
 
+// street lamps: point lights that turn on at night
+const int NUM_LAMPS = 6;            // must match LAMP_ANGLES in trees.js
+uniform vec3 uLampPos[NUM_LAMPS];   // bulb positions (camera space)
+uniform vec3 uLampColor;            // warm yellow light
+uniform float uLampStrength;        // 0 = off (day), 1 = fully on (night)
+
 out vec4 fragColor;
 
 const float bumpScale = 3.0;
@@ -130,7 +136,20 @@ void main() {
   vec3 diffuse = uLightColor * Kd * diff * uLightIntensity;
   vec3 specular = uLightColor * Ks * spec * uLightIntensity;
 
-  fragColor = vec4(ambient + diffuse + specular, 1.0);
+   // STREET LAMPS: each bulb is a point light. Light gets weaker with distance (attenuation),
+  // so every lamp lights a pool around itself.
+  vec3 lampLight = vec3(0.0);
+  for (int i = 0; i < NUM_LAMPS; i++) {
+    vec3 toLamp = uLampPos[i] - vPosition;
+    float d = length(toLamp);
+    vec3 Ld = toLamp / d;
+    float lampDiff = max(dot(N, Ld), 0.0);
+    if (uMapping == 5) lampDiff = abs(dot(N, Ld));               // leaves: light from either side
+    float attenuation = 1.0 / (1.0 + 0.1 * d + 0.03 * d * d);
+    lampLight += uLampColor * Kd * lampDiff * attenuation;
+  }
+
+  fragColor = vec4(ambient + diffuse + specular + lampLight * uLampStrength, 1.0);
 }
 `;
 
@@ -172,6 +191,9 @@ const uMapping = gl.getUniformLocation(program, "uMapping");
 const uLightIntensity = gl.getUniformLocation(program, "uLightIntensity");
 const uLightColor = gl.getUniformLocation(program, "uLightColor");
 const uColor = gl.getUniformLocation(program, "uColor");
+const uLampPos = gl.getUniformLocation(program, "uLampPos");
+const uLampColor = gl.getUniformLocation(program, "uLampColor");
+const uLampStrength = gl.getUniformLocation(program, "uLampStrength");
 
 gl.uniform1i(
     gl.getUniformLocation(program, "uTexture"), 0
@@ -348,6 +370,33 @@ const treeParts = {
 const forest = createForest();
 const lamps = createLamps();
 
+// Street lamp light (the bulb sits 3.45 up the lamp, see drawLamp in trees.js)
+const LAMP_BULB_HEIGHT = 3.45 * TREE_SCALE;
+const LAMP_LIGHT_COLOR = [1.6, 1.25, 0.8];   // warm yellow, a bit strong so the pools show up
+
+// Lamps turn on as the sun gets low, and stay on all night
+function getLampStrength() {
+  if (!isDaytime) return 1.0;
+  return Math.min(1.0, Math.max(0.0, 1.0 - getDaylight() * 4));   // fades in at sunset, out at sunrise
+}
+
+// Send the lamp positions (in camera space) and brightness to the shader
+function updateLamps() {
+  const strength = getLampStrength();
+  const toCamera = multiply(view, rotation);
+  const positions = [];
+  for (let i = 0; i < lamps.length; i++) {
+    const p = transformPoint(toCamera, [lamps[i].x, lamps[i].y + LAMP_BULB_HEIGHT, lamps[i].z]);
+    positions.push(p[0], p[1], p[2]);
+  }
+  gl.uniform3fv(uLampPos, new Float32Array(positions));
+  gl.uniform3fv(uLampColor, LAMP_LIGHT_COLOR);
+  gl.uniform1f(uLampStrength, strength);
+
+  // the bulbs: plain grey glass by day, glowing warm at night
+  treeParts.lampGlow.color = [0.55 + 0.45 * strength, 0.55 + 0.42 * strength, 0.55 + 0.3 * strength];
+}
+
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0.53, 0.81, 0.92, 1.0);
 
@@ -474,6 +523,7 @@ function render(time) {
   gl.uniformMatrix4fv(uProjection, false, projection);
 
   updateLighting();   // sun by day, moon by night: direction, color and brightness
+  updateLamps();      // street lamps: on at night
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
