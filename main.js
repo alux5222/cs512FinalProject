@@ -43,6 +43,9 @@ uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping, 2 = solid color,
 uniform vec3 uColor;   // used by modes 2 and 4
 uniform float uLightIntensity;
 
+// added for moon and sun
+uniform vec3 uLightColor;
+
 out vec4 fragColor;
 
 const float bumpScale = 3.0;
@@ -123,16 +126,11 @@ void main() {
   if (uMapping == 6) diff = 0.5 + 0.5 * dot(N, L);
   float spec = pow(max(dot(V, R), 0.0), shininess);
 
-  vec3 sunColor = vec3(1.0, 1.0, 0.9);
-
-
   vec3 ambient = Ka * (0.5 + 0.5 * uLightIntensity);
-  vec3 diffuse = sunColor * Kd * diff * uLightIntensity;
-  vec3 specular = sunColor * Ks * spec * uLightIntensity;
+  vec3 diffuse = uLightColor * Kd * diff * uLightIntensity;
+  vec3 specular = uLightColor * Ks * spec * uLightIntensity;
 
   fragColor = vec4(ambient + diffuse + specular, 1.0);
-
-  //fragColor = vec4(Ka + sunColor * Kd * diff + sunColor * Ks * spec, 1.0);
 }
 `;
 
@@ -172,6 +170,7 @@ const uProjection = gl.getUniformLocation(program, "uProjection");
 const uLightDir = gl.getUniformLocation(program, "uLightDir");
 const uMapping = gl.getUniformLocation(program, "uMapping");
 const uLightIntensity = gl.getUniformLocation(program, "uLightIntensity");
+const uLightColor = gl.getUniformLocation(program, "uLightColor");
 const uColor = gl.getUniformLocation(program, "uColor");
 
 gl.uniform1i(
@@ -276,6 +275,7 @@ const circularPavementMesh = createMesh(createCircularPavement(PondRadius+1, Pon
 const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
+const moonMesh = createMesh(createSphere(100,4));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -298,17 +298,28 @@ const pavementTexture = loadTexture("images/pavement.webp");
 const waterTexture = loadAnimatedTexture("images/water.mp4");
 const mountainTexture = loadTexture("images/mountain(1).jpg");
 const sunTexture = loadAnimatedTexture("images/sun.mp4");
+const moonTexture = loadTexture("images/moon.jpg");
 
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
 
 const sunPosition = [0, 12, -40];
+const moonPosition = [0, 0, 85];
+const DAY_DURATION = 30;
+const NIGHT_DURATION = 30;
+
+const HORIZONTAL_RADIUS = 85;
+const VERTICAL_RADIUS = 35;
+
+let isDaytime = true;
 
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
   { mesh: circularPavementMesh, texture: pavementTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
 //   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
   { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -60] },
-  { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
+  { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition },
+  { mesh: moonMesh, texture: moonTexture, mapping: EMISSIVE_MAPPING, offset: moonPosition }
+
 ];
 
 // ---------- Tree parts (trees.js builds the trees and street lights out of these) ----------
@@ -430,19 +441,25 @@ function drawPart(part, model) {
   gl.drawElements(gl.TRIANGLES, part.mesh.count, gl.UNSIGNED_SHORT, 0);
 }
 
-
 function getDaylight() {
+    if (!isDaytime) {
+        return 0.0;
+    }
+
     return Math.max(
-        0.5,
-        Math.min(1.0, (sunPosition[1] + 5) / 25)
+        0.0,
+        Math.min(1.0, sunPosition[1] / 20)
     );
 }
 
 // Render loop
 function render(time) {
   const t = time / 1000;
-  updateSun(t);
+
+
+  updateSunAndMoon(t);
   updateSky();
+
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -453,13 +470,18 @@ function render(time) {
   view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
   cameraTurn = multiply(rotateX(lookUp), rotation);
   gl.uniformMatrix4fv(uProjection, false, projection);
+  rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
 
-  gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
-  gl.uniform1f(uLightIntensity, getDaylight());
+  // update the lighting based on the sun and moon positions
+  updateLighting();
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
 
+    // Only show the sun during daytime
+    if (mesh === sunMesh && !isDaytime) continue;
+    // Only show the moon during nighttime
+    if (mesh === moonMesh && isDaytime) continue;
     if (animatedTexture) updateAnimatedTexture(animatedTexture);
 
     const model = multiply(rotation, translate(...offset));
@@ -478,16 +500,69 @@ function render(time) {
   requestAnimationFrame(render);
 }
 
-function updateSun(t) {
-    // Length of one complete day/night cycle
-    const dayDuration = 25;
-    const radius = 85;
-    // Sun angle
-    const angle = (t / dayDuration) * Math.PI * 2;
 
-    sunPosition[0] = 0;
-    sunPosition[1] = radius * Math.sin(angle);
-    sunPosition[2] = -radius * Math.cos(angle);
+// update the sun and moon positions based on the time of day
+function updateSunAndMoon(t) {
+    const cycleDuration = DAY_DURATION + NIGHT_DURATION;
+
+    const cycleTime = t % cycleDuration;
+
+    if (cycleTime < DAY_DURATION) {
+
+        // Daytime
+        isDaytime = true;
+
+        const angle = (cycleTime / DAY_DURATION) * Math.PI;
+
+        sunPosition[0] = 0;
+        sunPosition[1] = VERTICAL_RADIUS * Math.sin(angle);
+        sunPosition[2] = -HORIZONTAL_RADIUS * Math.cos(angle);
+
+    } else {
+
+        // Nighttime
+        isDaytime = false;
+
+        const nightTime = cycleTime - DAY_DURATION;
+
+        const angle = (nightTime / NIGHT_DURATION) * Math.PI;
+
+        moonPosition[0] = 0;
+        moonPosition[1] = VERTICAL_RADIUS * Math.sin(angle);
+        moonPosition[2] = -HORIZONTAL_RADIUS * Math.cos(angle);
+    }
+}
+
+//This function will determine which object (sun or moon) should illuminate the environment.
+function updateLighting() {
+    const daylight = getDaylight();
+
+    const sunColor = [1.0, 1.0, 0.9];
+    const moonColor = [0.45, 0.55, 0.85];
+
+    let lightPosition;
+    let lightColor;
+    let intensity;
+
+    if (isDaytime) {
+        // Daytime sunlight
+        lightPosition = sunPosition;
+        lightColor = sunColor;
+        intensity = daylight;
+    } else {
+        // Nighttime moonlight
+        lightPosition = moonPosition;
+        lightColor = moonColor;
+        intensity = 0.18 * Math.min(1.0, moonPosition[1] / 20);
+    }
+
+    gl.uniform3fv(
+        uLightDir,
+        transformPoint(rotation, lightPosition)
+    );
+
+    gl.uniform3fv(uLightColor, lightColor);
+    gl.uniform1f(uLightIntensity, intensity);
 }
 
 function updateSky() {
