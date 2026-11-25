@@ -55,6 +55,12 @@ float height(vec2 uv) {
 
 void main() {
 
+// Glowing solid color for the lamp bulbs (no lighting yet)
+  if (uMapping == 4) {
+      fragColor = vec4(uColor, 1.0);
+      return;
+  }
+
 // Emissive texture for the sun
   if (uMapping == 3) {
       vec3 sun = texture(uTexture, vTexCoord).rgb;
@@ -79,6 +85,20 @@ void main() {
     float dhdv = (height(vTexCoord + dv) - height(vTexCoord - dv)) * 0.5;
     n = normalize(vec3(-bumpScale * dhdu, -bumpScale * dhdv, 1.0));
     baseColor = texture(uTexture, vTexCoord).rgb;
+    } else if (uMapping == 2) {
+    // Solid color (fir needles, lamp poles)
+    n = vec3(0.0, 0.0, 1.0);
+    baseColor = uColor;
+  } else if (uMapping == 5) {
+    // Aspen leaves: texCoord.x is a random number for each leaf (see createLeafCluster),
+    // so every leaf gets its own shade of green
+    baseColor = mix(vec3(0.20, 0.40, 0.12), vec3(0.45, 0.62, 0.20), vTexCoord.x);
+    n = vec3(0.0, 0.0, 1.0);
+  } else if (uMapping == 6) {
+    // Aspen bark: plain texture 
+    baseColor = texture(uTexture, vTexCoord).rgb;
+    n = vec3(0.0, 0.0, 1.0);
+  } else {
   } else {
     // Normal mapping: the texture stores the tangent-space normal in [0, 1]
     n = normalize(texture(uTexture, vTexCoord).rgb * 2.0 - 1.0);
@@ -96,6 +116,11 @@ void main() {
   vec3 R = reflect(-L, N);
 
   float diff = max(dot(N, L), 0.0);
+// Trees: soft lighting so parts facing away from the light don't go black.
+  //   Leaves are thin, so light shows through from either side (abs).
+  //   Aspen bark uses "half-Lambert": 0.5 + 0.5 * dot(N, L) instead of max(dot(N, L), 0).
+  if (uMapping == 5) diff = 0.45 + 0.55 * abs(dot(N, L));
+  if (uMapping == 6) diff = 0.5 + 0.5 * dot(N, L);
   float spec = pow(max(dot(V, R), 0.0), shininess);
 
   vec3 sunColor = vec3(1.0, 1.0, 0.9);
@@ -147,6 +172,7 @@ const uProjection = gl.getUniformLocation(program, "uProjection");
 const uLightDir = gl.getUniformLocation(program, "uLightDir");
 const uMapping = gl.getUniformLocation(program, "uMapping");
 const uLightIntensity = gl.getUniformLocation(program, "uLightIntensity");
+const uColor = gl.getUniformLocation(program, "uColor");
 
 gl.uniform1i(
     gl.getUniformLocation(program, "uTexture"), 0
@@ -428,6 +454,32 @@ const objects = [
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition }
 ];
 
+// ---------- Tree parts (trees.js builds the trees and street lights out of these) ----------
+const TREE_COLOR = 2, GLOW_COLOR = 4, ASPEN_LEAVES = 5, ASPEN_BARK = 6;
+const coneMesh = createMesh(createCone(24, 2));
+const branchMesh = createMesh(createCylinder(16, 1));
+const ballMesh = createMesh(createSphere(10, 1));
+const aspenBarkTexture = loadTexture("images/aspen_bark.jpg");
+const firBarkTexture = loadTexture("images/fir_bark.jpg");
+
+const treeParts = {
+  aspenTrunk:  { mesh: branchMesh, texture: aspenBarkTexture, mapping: ASPEN_BARK,   color: [1, 1, 1] },
+  aspenBranch: { mesh: branchMesh, texture: aspenBarkTexture, mapping: ASPEN_BARK,   color: [1, 1, 1] },
+  // three different leaf crowns (random leaves), so the aspens don't all look the same
+  aspenCrowns: [
+    { mesh: createMesh(createLeafCluster(750, 1.3, 2.3, 1.3)), texture: aspenBarkTexture, mapping: ASPEN_LEAVES, color: [1, 1, 1] },
+    { mesh: createMesh(createLeafCluster(750, 1.3, 2.3, 1.3)), texture: aspenBarkTexture, mapping: ASPEN_LEAVES, color: [1, 1, 1] },
+    { mesh: createMesh(createLeafCluster(750, 1.3, 2.3, 1.3)), texture: aspenBarkTexture, mapping: ASPEN_LEAVES, color: [1, 1, 1] }
+  ],
+  firTrunk:    { mesh: branchMesh, texture: firBarkTexture,   mapping: BUMP_MAPPING, color: [1, 1, 1] },
+  firNeedles:  { mesh: coneMesh,   texture: firBarkTexture,   mapping: TREE_COLOR,   color: [0.12, 0.30, 0.16] },
+  lampPole:    { mesh: branchMesh, texture: firBarkTexture,   mapping: TREE_COLOR,   color: [0.15, 0.20, 0.17] },
+  lampGlow:    { mesh: ballMesh,   texture: firBarkTexture,   mapping: GLOW_COLOR,   color: [1.0, 0.97, 0.85] }
+};
+
+const forest = createForest();
+const lamps = createLamps();
+
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0.53, 0.81, 0.92, 1.0);
 
@@ -481,6 +533,21 @@ document.addEventListener("keydown", e => {
   e.preventDefault();
 });
 
+// The camera matrices, updated at the start of every frame in render()
+let view = translate(camX, camY, camZ);
+let rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
+
+// Draw one tree / street light part: model matrix -> camera -> shader
+function drawPart(part, model) {
+  gl.uniformMatrix4fv(uModelView, false, multiply(view, multiply(rotation, model)));
+  gl.uniform1i(uMapping, part.mapping);
+  gl.uniform3fv(uColor, part.color);
+  gl.bindTexture(gl.TEXTURE_2D, part.texture);
+  gl.bindVertexArray(part.mesh.vao);
+  gl.drawElements(gl.TRIANGLES, part.mesh.count, gl.UNSIGNED_SHORT, 0);
+}
+
+
 function getDaylight() {
 
     return Math.max(
@@ -497,11 +564,11 @@ function render(time) {
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  const view = translate(camX, camY, camZ);
+  view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
 
 
-  const rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
+  rotation = multiply(rotateY(dragRotY), rotateX(dragRotX));
       // Update sunlight direction based on sun position
   // gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
   // Update sunlight direction
@@ -544,6 +611,11 @@ gl.uniform3fv(uLightDir, [0.0, 1.0, 0.0]);
     gl.bindVertexArray(mesh.vao);
     gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
   }
+
+  // trees and street lights (trees.js)
+  drawForest(forest, treeParts, drawPart);
+  drawLamps(lamps, treeParts, drawPart);
+  
   requestAnimationFrame(render);
 }
 

@@ -620,3 +620,117 @@ function createMountain(width = 50, depth = 12, segments = 100) {
         indices: new Uint16Array(indices)
     };
 }
+
+// Cone (for fir trees): base radius 1 at y = 0, tip at y = 1
+function createCone(segments = 32, uRepeat = 2) {
+  const positions = [], normals = [], tangents = [], texCoords = [], indices = [];
+
+  // Side: one vertex at the base and one at the tip for every step around the circle
+  for (let i = 0; i <= segments; i++) {
+    const u = i / segments, theta = 2 * Math.PI * u;
+    const s = Math.sin(theta), c = Math.cos(theta);
+    // slope normal: radius 1, height 1, so it points 45 degrees up
+    const n = [s / Math.SQRT2, 1 / Math.SQRT2, c / Math.SQRT2];
+
+    positions.push(s, 0, c);          // base
+    normals.push(n[0], n[1], n[2]);
+    tangents.push(c, 0, -s);
+    texCoords.push(u * uRepeat, 0);
+
+    positions.push(0, 1, 0);          // tip
+    normals.push(n[0], n[1], n[2]);
+    tangents.push(c, 0, -s);
+    texCoords.push(u * uRepeat, 1);
+  }
+  for (let i = 0; i < segments; i++) {
+    const k = 2 * i;
+    indices.push(k, k + 2, k + 3, k, k + 3, k + 1);
+  }
+
+  // Bottom cap (facing down)
+  const center = positions.length / 3;
+  positions.push(0, 0, 0);
+  normals.push(0, -1, 0);
+  tangents.push(1, 0, 0);
+  texCoords.push(0.5, 0.5);
+  for (let i = 0; i <= segments; i++) {
+    const theta = 2 * Math.PI * i / segments;
+    const s = Math.sin(theta), c = Math.cos(theta);
+    positions.push(s, 0, c);
+    normals.push(0, -1, 0);
+    tangents.push(1, 0, 0);
+    texCoords.push(0.5 + 0.5 * s, 0.5 + 0.5 * c);
+  }
+  for (let i = 0; i < segments; i++) {
+    indices.push(center, center + 2 + i, center + 1 + i);
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    tangents: new Float32Array(tangents),
+    texCoords: new Float32Array(texCoords),
+    indices: new Uint16Array(indices)
+  };
+}
+
+// Aspen crown: many small flat oval leaves scattered in an egg shape, all in ONE mesh
+// (one draw call for the whole crown instead of one per leaf).
+// Every vertex of a leaf gets the same random number in texCoord.x; the shader uses it to
+// give each leaf its own shade of green (and, in the fall, its own time to turn yellow).
+function createLeafCluster(leafCount, rx, ry, rz) {
+  const positions = [], normals = [], tangents = [], texCoords = [], indices = [];
+  const sides = 12;         // each leaf is a 12-sided oval
+
+  for (let n = 0; n < leafCount; n++) {
+    // a random point inside the egg, not too close to the middle (leaves grow on the outside)
+    let x, y, z, d;
+    do {
+      x = Math.random() * 2 - 1;
+      y = Math.random() * 2 - 1;
+      z = Math.random() * 2 - 1;
+      d = x * x + y * y + z * z;
+    } while (d > 1 || d < 0.3);
+    const cx = x * rx, cy = y * ry, cz = z * rz;
+
+    // a random direction for the leaf to face
+    let nx = Math.random() * 2 - 1, ny = Math.random() * 2 - 1, nz = Math.random() * 2 - 1;
+    let len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    nx /= len; ny /= len; nz /= len;
+
+    // two directions flat on the leaf: u (along the leaf) = normal x up, v = normal x u
+    let ux = nz, uy = 0, uz = -nx;                // cross(normal, up)
+    len = Math.sqrt(ux * ux + uz * uz);
+    if (len < 0.01) { ux = 1; uz = 0; len = 1; }  // leaf facing straight up or down
+    ux /= len; uz /= len;
+    const vx = ny * uz - nz * uy, vy = nz * ux - nx * uz, vz = nx * uy - ny * ux;
+
+    const size = 0.8 + Math.random() * 0.4;
+    const leafLength = 0.15 * size, leafWidth = 0.1 * size;
+    const shade = Math.random();
+
+    // fan of triangles: center, then the points around the oval
+    const start = positions.length / 3;
+    positions.push(cx, cy, cz);
+    normals.push(nx, ny, nz);
+    tangents.push(ux, uy, uz);
+    texCoords.push(shade, 0.5);
+    for (let i = 0; i <= sides; i++) {
+      const t = 2 * Math.PI * i / sides;
+      const a = Math.cos(t) * leafLength, b = Math.sin(t) * leafWidth;
+      positions.push(cx + a * ux + b * vx, cy + a * uy + b * vy, cz + a * uz + b * vz);
+      normals.push(nx, ny, nz);
+      tangents.push(ux, uy, uz);
+      texCoords.push(shade, 0.5);
+      if (i > 0) indices.push(start, start + i, start + i + 1);
+    }
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    tangents: new Float32Array(tangents),
+    texCoords: new Float32Array(texCoords),
+    indices: new Uint16Array(indices)
+  };
+}
