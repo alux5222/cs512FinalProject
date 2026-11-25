@@ -767,15 +767,14 @@ const shadowMap = createShadowMap(SHADOW_MAP_SIZE);
 console.log("Shadow map:", shadowMap);
 
 const PondRadius = 15;
-const groundMesh = createMesh(createGround(50, PondRadius, 128, 40));
+const groundMesh = createMesh(createGround(90, PondRadius, 128, 40));
 const circularPavementMesh = createMesh(createCircularPavement(PondRadius+1, PondRadius+1+8, 128, 0.2));
 const pondMesh = createMesh(createPond(128, 6, 6.5));
-const mountainMesh = createMesh(createMountain(100, 22, 180));
+const mountainMesh = createMesh(createMountain(150, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
 const moonMesh = createMesh(createSphere(100,4));
 const starMesh = createStarMesh(createStars(2500, 130));
 const skyMesh = createMesh(createSphere(64, 200));
-
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -816,7 +815,7 @@ const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
   { mesh: circularPavementMesh, texture: pavementTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
 //   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
-  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -60] },
+  { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -90] },
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition },
   { mesh: moonMesh, texture: moonTexture, mapping: EMISSIVE_MAPPING, offset: moonPosition }
 

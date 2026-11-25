@@ -532,14 +532,16 @@ function createMountain(width = 50, depth = 12, segments = 100) {
         const peak2 = 11.0 * Math.exp(-Math.pow((x + 12) / 10, 2));
         const peak3 = 9.0 * Math.exp(-Math.pow((x - 12) / 11, 2));
         const peak4 = 12.0 * Math.exp(-Math.pow((x - 35) / 13, 2));
+        const peak5 = 6.0 * Math.exp(-Math.pow((x - 50) / 15, 2));
+        const peak6 = 15 * Math.exp(-Math.pow((x - 70) / 10, 2));
 
-        const ridge = peak1 + peak2 + peak3 + peak4;
+        const ridge = peak1 + peak2 + peak3 + peak4 + peak5 + peak6;
 
         // Fade mountain height towards the front and back
         const depthFactor = Math.sin(Math.PI * z / depth);
 
         // Add subtle rocky variation
-        const rockyDetail = noise(x, z) * 1.2;
+        const rockyDetail = noise(x, z) * 3;
 
         return Math.max(
             0,
