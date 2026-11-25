@@ -7,10 +7,14 @@ in vec2 aTexCoord;
 uniform mat4 uModelView;
 uniform mat4 uProjection;
 
+uniform mat4 uModel;
+uniform mat4 uLightSpaceMatrix;
+
 out vec3 vPosition;
 out vec3 vNormal;
 out vec3 vTangent;
 out vec2 vTexCoord;
+out vec4 vLightSpacePosition;
 
 void main() {
 
@@ -21,6 +25,7 @@ void main() {
   mat3 mv = mat3(uModelView);
   vNormal = transpose(inverse(mv)) * aNormal;
 
+  vLightSpacePosition = uLightSpaceMatrix * uModel * vec4(aPosition, 1.0);
 
   vTangent = mv * aTangent;
   vTexCoord = aTexCoord;
@@ -29,14 +34,15 @@ void main() {
 `;
 
 const FRAGMENT_SHADER = `#version 300 es
-precision mediump float;
+precision highp float;
 
+in vec4 vLightSpacePosition;
 in vec3 vPosition;
 in vec3 vNormal;
 in vec3 vTangent;
 in vec2 vTexCoord;
 
-//uniform vec3 uLightPos;
+uniform highp sampler2D uShadowMap;
 uniform vec3 uLightDir;
 uniform sampler2D uTexture;
 uniform int uMapping;  // 0 = bump mapping, 1 = normal mapping, 2 = solid color, 3 = animated texture, 4 = glowing color (lamps), 5 = aspen leaves, 6 = aspen bark
@@ -62,6 +68,44 @@ float height(vec2 uv) {
   vec3 c = texture(uTexture, uv).rgb;
   return 1.0 - dot(c, vec3(0.299, 0.587, 0.114));
 }
+
+
+float calculateShadow(vec4 lightSpacePosition, vec3 N, vec3 L) {
+
+    // Convert from clip space to normalized device coordinates
+    vec3 projected = lightSpacePosition.xyz /
+                     lightSpacePosition.w;
+
+    // Convert from [-1, 1] to [0, 1]
+    projected = projected * 0.5 + 0.5;
+
+    // Outside the shadow map's boundaries
+    if (projected.x < 0.0 || projected.x > 1.0 ||
+        projected.y < 0.0 || projected.y > 1.0 ||
+        projected.z < 0.0 || projected.z > 1.0) {
+
+        return 0.0;
+    }
+
+    // Closest surface to the light
+    float closestDepth =
+        texture(uShadowMap, projected.xy).r;
+
+    // Depth of the current fragment
+    float currentDepth = projected.z;
+
+    // Prevent self-shadowing artifacts
+    float bias = max(
+        0.0005 * (1.0 - dot(N, L)),
+        0.0001
+    );
+
+    float shadow =
+        currentDepth - bias > closestDepth ? 1.0 : 0.0;
+
+    return shadow;
+}
+
 
 void main() {
 
@@ -149,7 +193,9 @@ void main() {
     lampLight += uLampColor * Kd * lampDiff * attenuation;
   }
 
-  fragColor = vec4(ambient + diffuse + specular + lampLight * uLampStrength, 1.0);
+  float shadow = calculateShadow(vLightSpacePosition, N, L);
+
+  fragColor = vec4(ambient + (1.0 - shadow) * (diffuse + specular) + lampLight * uLampStrength, 1.0);
 }
 `;
 
@@ -200,7 +246,28 @@ void main() {
 }
 `;
 
+const SHADOW_VERTEX_SHADER = `#version 300 es
 
+in vec3 aPosition;
+
+uniform mat4 uLightSpaceMatrix;
+uniform mat4 uModel;
+
+void main() {
+    gl_Position = uLightSpaceMatrix *
+                  uModel *
+                  vec4(aPosition, 1.0);
+}
+`;
+
+const SHADOW_FRAGMENT_SHADER = `#version 300 es
+
+precision highp float;
+
+void main() {
+    // Depth is automatically written by WebGL
+}
+`;
 
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
@@ -236,6 +303,11 @@ const starProgram = createProgram(
     STAR_FRAGMENT_SHADER
 );
 
+const shadowProgram = createProgram(
+    SHADOW_VERTEX_SHADER,
+    SHADOW_FRAGMENT_SHADER
+);
+
 gl.useProgram(program);
 
 const uModelView = gl.getUniformLocation(program, "uModelView");
@@ -249,11 +321,20 @@ const uLampPos = gl.getUniformLocation(program, "uLampPos");
 const uLampColor = gl.getUniformLocation(program, "uLampColor");
 const uLampStrength = gl.getUniformLocation(program, "uLampStrength");
 
+const uModel = gl.getUniformLocation(program, "uModel");
+const uLightSpaceMatrix = gl.getUniformLocation(program, "uLightSpaceMatrix");
+const uShadowMap = gl.getUniformLocation(program, "uShadowMap");
+
 const starUniforms = {
-    uModelView: gl.getUniformLocation(starProgram, "uModelView"),
-    uProjection: gl.getUniformLocation(starProgram, "uProjection"),
-    uTime: gl.getUniformLocation(starProgram, "uTime"),
-    uVisibility: gl.getUniformLocation(starProgram, "uVisibility")
+  uModelView: gl.getUniformLocation(starProgram, "uModelView"),
+  uProjection: gl.getUniformLocation(starProgram, "uProjection"),
+  uTime: gl.getUniformLocation(starProgram, "uTime"),
+  uVisibility: gl.getUniformLocation(starProgram, "uVisibility")
+};
+
+const shadowUniforms = {
+  uLightSpaceMatrix: gl.getUniformLocation(shadowProgram, "uLightSpaceMatrix"),
+  uModel: gl.getUniformLocation(shadowProgram, "uModel")
 };
 
 gl.uniform1i(
@@ -323,6 +404,74 @@ function createStarMesh(starData) {
     return {
         vao: vao,
         count: starData.count
+    };
+}
+
+function createShadowMap(size) {
+
+    const framebuffer = gl.createFramebuffer();
+    const depthTexture = gl.createTexture();
+
+    // Allocate the depth texture
+    gl.bindTexture(gl.TEXTURE_2D, depthTexture);
+
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.DEPTH_COMPONENT24,
+        size,
+        size,
+        0,
+        gl.DEPTH_COMPONENT,
+        gl.UNSIGNED_INT,
+        null
+    );
+
+    // Texture filtering
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    // Prevent texture wrapping
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+
+    gl.texParameteri(gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // Bind the framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+    // Attach the depth texture
+    gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.DEPTH_ATTACHMENT,
+        gl.TEXTURE_2D,
+        depthTexture,
+        0
+    );
+
+    // Disable color rendering
+    gl.drawBuffers([gl.NONE]);
+    gl.readBuffer(gl.NONE);
+
+    // Verify framebuffer configuration
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+        !== gl.FRAMEBUFFER_COMPLETE) {
+
+        throw new Error("Shadow framebuffer is incomplete");
+    }
+
+    // Restore the default framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    return {
+        framebuffer,
+        depthTexture,
+        size
     };
 }
 
@@ -397,6 +546,11 @@ function updateAnimatedTexture(animatedTexture) {
 
     animatedTexture.lastTime = video.currentTime;
 }
+
+const SHADOW_MAP_SIZE = 2048;
+const shadowMap = createShadowMap(SHADOW_MAP_SIZE);
+
+console.log("Shadow map:", shadowMap);
 
 const PondRadius = 15;
 const groundMesh = createMesh(createGround(50, PondRadius, 128, 40));
@@ -591,12 +745,33 @@ let cameraTurn = rotation;   // every rotation of the camera (used to turn the s
 
 // Draw one tree / street light part: model matrix -> camera -> shader
 function drawPart(part, model) {
+  //world-space transofrmation for shadows
+  gl.uniformMatrix4fv(uModel, false, model);
+  // Camera-space transformation for normal rendering
   gl.uniformMatrix4fv(uModelView, false, multiply(view, multiply(rotation, model)));
   gl.uniform1i(uMapping, part.mapping);
   gl.uniform3fv(uColor, part.color);
   gl.bindTexture(gl.TEXTURE_2D, part.texture);
   gl.bindVertexArray(part.mesh.vao);
   gl.drawElements(gl.TRIANGLES, part.mesh.count, gl.UNSIGNED_SHORT, 0);
+}
+
+function drawShadowPart(part, model) {
+
+    gl.uniformMatrix4fv(
+        shadowUniforms.uModel,
+        false,
+        model
+    );
+
+    gl.bindVertexArray(part.mesh.vao);
+
+    gl.drawElements(
+        gl.TRIANGLES,
+        part.mesh.count,
+        gl.UNSIGNED_SHORT,
+        0
+    );
 }
 
 function getDaylight() {
@@ -673,6 +848,109 @@ function updateLighting() {
 
     gl.uniform3fv(uLightColor, lightColor);
     gl.uniform1f(uLightIntensity, intensity);
+}
+//creates a virtual camera that follows the direction of sun or moon and looks toward the center of environment
+function getLightSpaceMatrix() {
+
+    // Select the active light source
+    const lightPosition = isDaytime
+        ? sunPosition
+        : moonPosition;
+
+    // Normalize the light direction
+    const length = Math.hypot(...lightPosition);
+
+    const lightDirection = [
+        lightPosition[0] / length,
+        lightPosition[1] / length,
+        lightPosition[2] / length
+    ];
+
+    // Position the virtual light camera
+    const lightEye = lightDirection.map(v => v * 150);
+
+    const target = [0, 0, 0];
+    const up = [1, 0, 0];
+
+    const lightView = lookAt(lightEye, target, up);
+
+    const lightProjection = orthographic(
+        -80, 80,
+        -80, 80,
+        0.1, 300
+    );
+
+    return multiply(lightProjection, lightView);
+}
+
+function renderShadowMap(lightSpaceMatrix) {
+
+    // Switch to the shadow shader
+    gl.useProgram(shadowProgram);
+
+    // Unbind the shadow texture from texture unit 1
+    // to avoid sampling it while rendering into it
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(gl.TEXTURE0);
+
+    // Render into the shadow framebuffer
+    gl.bindFramebuffer(
+        gl.FRAMEBUFFER,
+        shadowMap.framebuffer
+    );
+
+    // Use the shadow texture's resolution
+    gl.viewport(
+        0, 0,
+        shadowMap.size,
+        shadowMap.size
+    );
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+
+    // Clear the previous frame's depth values
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+
+    // Send the light-space transformation
+    gl.uniformMatrix4fv(
+        shadowUniforms.uLightSpaceMatrix,
+        false,
+        lightSpaceMatrix
+    );
+
+    // Render regular scene objects
+    for (const { mesh, offset } of objects) {
+
+        // Celestial objects do not cast shadows
+        if (mesh === sunMesh || mesh === moonMesh) {
+            continue;
+        }
+
+        const model = translate(...offset);
+
+        drawShadowPart({ mesh }, model);
+    }
+
+    // Render hierarchical trees and streetlights
+    drawForest(forest, treeParts, drawShadowPart);
+    drawLamps(lamps, treeParts, drawShadowPart);
+
+    // Restore the default framebuffer
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    // Restore the canvas resolution
+    gl.viewport(
+        0, 0,
+        canvas.width,
+        canvas.height
+    );
+
+    gl.bindVertexArray(null);
+
+    // Switch back to the main shader
+    gl.useProgram(program);
 }
 
 function drawStars(t) {
@@ -751,7 +1029,34 @@ function render(time) {
 
   keepCameraAboveGround(); 
 
+  // generate the shadow map from the light's perspective
+  const lightSpaceMatrix = getLightSpaceMatrix();
+  renderShadowMap(lightSpaceMatrix);
+
+  console.log("Shadow pass error:", gl.getError());
+  // render the scene from the camera's perspective
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+
+    // Send the light-space matrix to the main shader
+  gl.uniformMatrix4fv(
+      uLightSpaceMatrix,
+      false,
+      lightSpaceMatrix
+  );
+
+  // Bind the shadow map to texture unit 1
+  gl.activeTexture(gl.TEXTURE1);
+
+  gl.bindTexture(
+      gl.TEXTURE_2D,
+      shadowMap.depthTexture
+  );
+
+  gl.uniform1i(uShadowMap, 1);
+
+  // Restore texture unit 0 for regular textures
+  gl.activeTexture(gl.TEXTURE0);
 
   // camera: spin and tilt around the scene, then (if dragged past level) look up
   const tilt = Math.max(dragRotX, MIN_TILT);
@@ -776,6 +1081,10 @@ function render(time) {
     // Only show the moon during nighttime
     if (mesh === moonMesh && isDaytime) continue;
     if (animatedTexture) updateAnimatedTexture(animatedTexture);
+
+
+    // world-space model matrix for shadow calculation
+    gl.uniformMatrix4fv(uModel, false, translate(...offset));
 
     // sun and moon is independent of the camera, so they don't rotate with it. The rest of the scene does rotate with the camera.
     if (mesh === sunMesh || mesh === moonMesh) {
