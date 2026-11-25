@@ -46,3 +46,61 @@ const ROTATE = { x: rotateX, y: rotateY, z: rotateZ };
 function scale(x, y, z) {
   return new Float32Array([x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1]);
 }
+
+// orthographic projection matrix
+function orthographic(left, right, bottom, top, near, far) {
+    return new Float32Array([
+        2 / (right - left), 0, 0, 0,
+
+        0, 2 / (top - bottom), 0, 0,
+
+        0, 0, -2 / (far - near), 0,
+
+        -(right + left) / (right - left),
+        -(top + bottom) / (top - bottom),
+        -(far + near) / (far - near),
+        1
+    ]);
+}
+
+function lookAt(eye, target, up) {
+
+    function normalize(v) {
+        const length = Math.hypot(...v);
+        return v.map(x => x / length);
+    }
+
+    function cross(a, b) {
+        return [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]
+        ];
+    }
+
+    function dot(a, b) {
+        return a[0] * b[0] +
+               a[1] * b[1] +
+               a[2] * b[2];
+    }
+
+    const z = normalize([
+        eye[0] - target[0],
+        eye[1] - target[1],
+        eye[2] - target[2]
+    ]);
+
+    const x = normalize(cross(up, z));
+    const y = cross(z, x);
+
+    return new Float32Array([
+        x[0], y[0], z[0], 0,
+        x[1], y[1], z[1], 0,
+        x[2], y[2], z[2], 0,
+
+        -dot(x, eye),
+        -dot(y, eye),
+        -dot(z, eye),
+        1
+    ]);
+}
