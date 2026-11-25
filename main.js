@@ -354,7 +354,7 @@ function resizeCanvas() {
         Math.PI / 4,
         canvas.width / canvas.height,
         0.1,
-        200
+        300
     );
 }
 
@@ -430,10 +430,9 @@ function drawPart(part, model) {
 
 
 function getDaylight() {
-
     return Math.max(
         0.5,
-        Math.min(1.0, (sunPosition[1] + 5) / 30)
+        Math.min(1.0, (sunPosition[1] + 5) / 25)
     );
 }
 
@@ -448,36 +447,10 @@ function render(time) {
   view = translate(camX, camY, camZ);
   gl.uniformMatrix4fv(uProjection, false, projection);
 
-
   rotation = multiply(rotateX(dragRotX), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
-      // Update sunlight direction based on sun position
-  // gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
-  // Update sunlight direction
-const lightLength = Math.hypot(
-    sunPosition[0],
-    sunPosition[1],
-    sunPosition[2]
-);
 
-const lightDirection = [
-    sunPosition[0] / lightLength,
-    sunPosition[1] / lightLength,
-    sunPosition[2] / lightLength
-];
-const rotatedLight = transformPoint(rotation, [
-    lightDirection[0],
-    lightDirection[1],
-    lightDirection[2]
-]);
-
-// gl.uniform3fv(
-//     uLightDir,
-//     transformPoint(rotation, lightDirection)
-// );
-// gl.uniform3fv(uLightDir, rotatedLight);
-gl.uniform3fv(uLightDir, [0.0, 1.0, 0.0]);
+  gl.uniform3fv(uLightDir, transformPoint(rotation, sunPosition));
   gl.uniform1f(uLightIntensity, getDaylight());
-
 
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
@@ -502,15 +475,14 @@ gl.uniform3fv(uLightDir, [0.0, 1.0, 0.0]);
 
 function updateSun(t) {
     // Length of one complete day/night cycle
-    const dayDuration = 50;
+    const dayDuration = 25;
+    const radius = 85;
     // Sun angle
     const angle = (t / dayDuration) * Math.PI * 2;
-    // Sun distance from the scene
-    const distance = 100;
-    // Sun moves across the horizon
-    sunPosition[0] = Math.cos(angle) * distance;
-    sunPosition[1] = Math.sin(angle) * 45;
-    sunPosition[2] = -65;
+
+    sunPosition[0] = 0;
+    sunPosition[1] = radius * Math.sin(angle);
+    sunPosition[2] = -radius * Math.cos(angle);
 }
 
 function updateSky() {
