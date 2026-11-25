@@ -304,6 +304,13 @@ const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
 
 const sunPosition = [0, 12, -40];
 const moonPosition = [0, 0, 85];
+const DAY_DURATION = 30;
+const NIGHT_DURATION = 30;
+
+const HORIZONTAL_RADIUS = 85;
+const VERTICAL_RADIUS = 35;
+
+let isDaytime = true;
 
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
@@ -432,20 +439,25 @@ function drawPart(part, model) {
   gl.drawElements(gl.TRIANGLES, part.mesh.count, gl.UNSIGNED_SHORT, 0);
 }
 
-
 function getDaylight() {
+    if (!isDaytime) {
+        return 0.0;
+    }
+
     return Math.max(
-        0.5,
-        Math.min(1.0, (sunPosition[1] + 5) / 25)
+        0.0,
+        Math.min(1.0, sunPosition[1] / 20)
     );
 }
 
 // Render loop
 function render(time) {
   const t = time / 1000;
-  updateSun(t);
+
+
+  updateSunAndMoon(t);
   updateSky();
-  updateMoon();
+
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -459,6 +471,10 @@ function render(time) {
   gl.activeTexture(gl.TEXTURE0);
   for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
 
+    // Only show the sun during daytime
+    if (mesh === sunMesh && !isDaytime) continue;
+    // Only show the moon during nighttime
+    if (mesh === moonMesh && isDaytime) continue;
     if (animatedTexture) updateAnimatedTexture(animatedTexture);
 
     const model = multiply(rotation, translate(...offset));
@@ -477,23 +493,39 @@ function render(time) {
   requestAnimationFrame(render);
 }
 
-function updateSun(t) {
-    // Length of one complete day/night cycle
-    const dayDuration = 25;
-    const radius = 85;
-    // Sun angle
-    const angle = (t / dayDuration) * Math.PI * 2;
 
-    sunPosition[0] = 0;
-    sunPosition[1] = radius * Math.sin(angle);
-    sunPosition[2] = -radius * Math.cos(angle);
+// update the sun and moon positions based on the time of day
+function updateSunAndMoon(t) {
+    const cycleDuration = DAY_DURATION + NIGHT_DURATION;
+
+    const cycleTime = t % cycleDuration;
+
+    if (cycleTime < DAY_DURATION) {
+
+        // Daytime
+        isDaytime = true;
+
+        const angle = (cycleTime / DAY_DURATION) * Math.PI;
+
+        sunPosition[0] = 0;
+        sunPosition[1] = VERTICAL_RADIUS * Math.sin(angle);
+        sunPosition[2] = -HORIZONTAL_RADIUS * Math.cos(angle);
+
+    } else {
+
+        // Nighttime
+        isDaytime = false;
+
+        const nightTime = cycleTime - DAY_DURATION;
+
+        const angle = (nightTime / NIGHT_DURATION) * Math.PI;
+
+        moonPosition[0] = 0;
+        moonPosition[1] = VERTICAL_RADIUS * Math.sin(angle);
+        moonPosition[2] = -HORIZONTAL_RADIUS * Math.cos(angle);
+    }
 }
 
-function updateMoon() {
-    moonPosition[0] = -sunPosition[0];
-    moonPosition[1] = -sunPosition[1];
-    moonPosition[2] = -sunPosition[2];
-}
 //This function will determine which object (sun or moon) should illuminate the environment.
 function updateLighting() {
     const daylight = getDaylight();
@@ -505,7 +537,7 @@ function updateLighting() {
     let lightColor;
     let intensity;
 
-    if (sunPosition[1] >= 0) {
+    if (isDaytime) {
         // Daytime sunlight
         lightPosition = sunPosition;
         lightColor = sunColor;
@@ -514,7 +546,7 @@ function updateLighting() {
         // Nighttime moonlight
         lightPosition = moonPosition;
         lightColor = moonColor;
-        intensity = 0.50 * (1.0 - daylight);
+        intensity = 0.18 * Math.min(1.0, moonPosition[1] / 20);
     }
 
     gl.uniform3fv(
