@@ -153,6 +153,55 @@ void main() {
 }
 `;
 
+
+// STAR Vertex Shader
+const STAR_VERTEX_SHADER = `#version 300 es
+
+in vec3 aPosition;
+in float aSize;
+in float aPhase;
+
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+uniform float uTime;
+
+out float vBrightness;
+
+void main() {
+  gl_Position = uProjection * uModelView * vec4(aPosition, 1.0);
+
+  gl_PointSize = aSize;
+
+  // Twinkling animation
+  vBrightness = 0.75 + 0.25 * sin(uTime * 2.0 + aPhase);
+}
+`;
+// STAR Fragment Shader
+const STAR_FRAGMENT_SHADER = `#version 300 es
+
+precision mediump float;
+
+in float vBrightness;
+
+uniform float uVisibility;
+
+out vec4 fragColor;
+
+void main() {
+  float dist = length(gl_PointCoord - vec2(0.5));
+
+  if (dist > 0.5) {
+    discard;
+  }
+
+  float glow = 1.0 - smoothstep(0.0, 0.5, dist);
+
+  fragColor = vec4(vec3(0.9, 0.95, 1.0), glow * vBrightness * uVisibility);
+}
+`;
+
+
+
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -182,6 +231,11 @@ const program = createProgram(
     FRAGMENT_SHADER
 );
 
+const starProgram = createProgram(
+    STAR_VERTEX_SHADER,
+    STAR_FRAGMENT_SHADER
+);
+
 gl.useProgram(program);
 
 const uModelView = gl.getUniformLocation(program, "uModelView");
@@ -194,6 +248,13 @@ const uColor = gl.getUniformLocation(program, "uColor");
 const uLampPos = gl.getUniformLocation(program, "uLampPos");
 const uLampColor = gl.getUniformLocation(program, "uLampColor");
 const uLampStrength = gl.getUniformLocation(program, "uLampStrength");
+
+const starUniforms = {
+    uModelView: gl.getUniformLocation(starProgram, "uModelView"),
+    uProjection: gl.getUniformLocation(starProgram, "uProjection"),
+    uTime: gl.getUniformLocation(starProgram, "uTime"),
+    uVisibility: gl.getUniformLocation(starProgram, "uVisibility")
+};
 
 gl.uniform1i(
     gl.getUniformLocation(program, "uTexture"), 0
@@ -217,6 +278,52 @@ function createMesh({ positions, normals, tangents, texCoords, indices }) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
   return { vao, count: indices.length };
+}
+
+function createStarMesh(starData) {
+
+    const vao = gl.createVertexArray();
+
+    gl.bindVertexArray(vao);
+
+    function bind(name, data, size) {
+
+        const location = gl.getAttribLocation(
+            starProgram, name
+        );
+
+        const buffer = gl.createBuffer();
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+        gl.bufferData(
+            gl.ARRAY_BUFFER,
+            data,
+            gl.STATIC_DRAW
+        );
+
+        gl.vertexAttribPointer(
+            location,
+            size,
+            gl.FLOAT,
+            false,
+            0,
+            0
+        );
+
+        gl.enableVertexAttribArray(location);
+    }
+
+    bind("aPosition", starData.positions, 3);
+    bind("aSize", starData.sizes, 1);
+    bind("aPhase", starData.phases, 1);
+
+    gl.bindVertexArray(null);
+
+    return {
+        vao: vao,
+        count: starData.count
+    };
 }
 
 function loadAnimatedTexture(url) {
@@ -298,6 +405,7 @@ const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(100, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
 const moonMesh = createMesh(createSphere(100,4));
+const starMesh = createStarMesh(createStars(2500, 130));
 
 function loadTexture(url) {
   const texture = gl.createTexture();
@@ -330,7 +438,7 @@ const DAY_DURATION = 30;
 const NIGHT_DURATION = 30;
 
 const HORIZONTAL_RADIUS = 85;
-const VERTICAL_RADIUS = 35;
+const VERTICAL_RADIUS = 85;
 
 let isDaytime = true;
 
@@ -502,54 +610,6 @@ function getDaylight() {
     );
 }
 
-// Render loop
-function render(time) {
-  const t = time / 1000;
-
-
-  updateSunAndMoon(t);
-  updateSky();
-
-  keepCameraAboveGround(); 
-
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  // camera: spin and tilt around the scene, then (if dragged past level) look up
-  const tilt = Math.max(dragRotX, MIN_TILT);
-  const lookUp = Math.min(dragRotX - MIN_TILT, 0);       // 0, or negative when looking up
-  rotation = multiply(rotateX(tilt), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
-  view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
-  cameraTurn = multiply(rotateX(lookUp), rotation);
-  gl.uniformMatrix4fv(uProjection, false, projection);
-
-  updateLighting();   // sun by day, moon by night: direction, color and brightness
-  updateLamps();      // street lamps: on at night
-
-  gl.activeTexture(gl.TEXTURE0);
-  for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
-
-    // Only show the sun during daytime
-    if (mesh === sunMesh && !isDaytime) continue;
-    // Only show the moon during nighttime
-    if (mesh === moonMesh && isDaytime) continue;
-    if (animatedTexture) updateAnimatedTexture(animatedTexture);
-
-    const model = multiply(rotation, translate(...offset));
-    gl.uniformMatrix4fv(uModelView, false, multiply(view,model));
-
-    gl.uniform1i(uMapping, mapping);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.bindVertexArray(mesh.vao);
-    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
-  }
-
-  // trees and street lights (trees.js)
-  drawForest(forest, treeParts, drawPart);
-  drawLamps(lamps, treeParts, drawPart);
-  
-  requestAnimationFrame(render);
-}
-
 
 // update the sun and moon positions based on the time of day
 function updateSunAndMoon(t) {
@@ -615,6 +675,46 @@ function updateLighting() {
     gl.uniform1f(uLightIntensity, intensity);
 }
 
+function drawStars(t) {
+
+    // Stars gradually appear during sunset
+    const visibility = 1.0 - getDaylight();
+    if (visibility <= 0.01) {
+        return;
+    }
+
+    // Switch to the star shader
+    gl.useProgram(starProgram);
+    gl.uniformMatrix4fv(starUniforms.uModelView, false, cameraTurn);
+    gl.uniformMatrix4fv(starUniforms.uProjection, false, projection);
+    gl.uniform1f(starUniforms.uTime, t);
+    gl.uniform1f(starUniforms.uVisibility, visibility);
+    // Enable transparency
+    gl.enable(gl.BLEND);
+
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // Prevent transparent stars from writing depth
+    gl.depthMask(false);
+
+    gl.bindVertexArray(starMesh.vao);
+
+    // Draw all stars in one draw call
+    gl.drawArrays(
+        gl.POINTS,
+        0,
+        starMesh.count
+    );
+
+    // Restore WebGL settings
+    gl.bindVertexArray(null);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+
+    // Return to the original shader
+    gl.useProgram(program);
+}
+
 function updateSky() {
     const daylight = getDaylight();
 
@@ -639,5 +739,65 @@ function updateSky() {
     const b = from[2] + (to[2] - from[2]) * factor;
 
     gl.clearColor(r, g, b, 1.0);
+}
+
+// Render loop
+function render(time) {
+  const t = time / 1000;
+
+
+  updateSunAndMoon(t);
+  updateSky();
+
+  keepCameraAboveGround(); 
+
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // camera: spin and tilt around the scene, then (if dragged past level) look up
+  const tilt = Math.max(dragRotX, MIN_TILT);
+  const lookUp = Math.min(dragRotX - MIN_TILT, 0);       // 0, or negative when looking up
+
+  rotation = multiply(rotateX(tilt), rotateY(dragRotY));   // spin around the vertical axis, then tilt down
+
+  view = multiply(rotateX(lookUp), translate(camX, camY, camZ));
+  cameraTurn = multiply(rotateX(lookUp), rotation);
+  gl.uniformMatrix4fv(uProjection, false, projection);
+
+  // update the lighting based on the sun and moon positions
+  updateLighting();
+
+  updateLamps();
+
+  gl.activeTexture(gl.TEXTURE0);
+  for (const { mesh, texture, animatedTexture, mapping, offset } of objects) {
+
+    // Only show the sun during daytime
+    if (mesh === sunMesh && !isDaytime) continue;
+    // Only show the moon during nighttime
+    if (mesh === moonMesh && isDaytime) continue;
+    if (animatedTexture) updateAnimatedTexture(animatedTexture);
+
+    // sun and moon is independent of the camera, so they don't rotate with it. The rest of the scene does rotate with the camera.
+    if (mesh === sunMesh || mesh === moonMesh) {
+      const model = multiply(cameraTurn, translate(...offset));
+      gl.uniformMatrix4fv(uModelView, false, model);
+    } else {
+      const model = multiply(rotation, translate(...offset));
+      gl.uniformMatrix4fv(uModelView, false, multiply(view, model));
+
+    }
+
+    gl.uniform1i(uMapping, mapping);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.bindVertexArray(mesh.vao);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  // trees and street lights (trees.js)
+  drawForest(forest, treeParts, drawPart);
+  drawLamps(lamps, treeParts, drawPart);
+  drawStars(t);
+  
+  requestAnimationFrame(render);
 }
 requestAnimationFrame(render);

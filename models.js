@@ -933,3 +933,38 @@ function createCircularPavement(innerRadius, outerRadius, segments, uvScale)
         indices: new Uint16Array(indices)
     };
 }
+
+function createStars(count = 1500, radius = 130) {
+    const positions = [];
+    const sizes = [];
+    const phases = [];
+
+    for (let i = 0; i < count; i++) {
+
+        const angle = Math.random() * Math.PI * 2;
+
+        const y = Math.random();
+
+        const horizontal = Math.sqrt(1 - y * y);
+
+        const x = horizontal * Math.cos(angle);
+        const z = horizontal * Math.sin(angle);
+
+        positions.push(
+            radius * x,
+            radius * y,
+            radius * z
+        );
+
+        sizes.push(2.0 + Math.random() * 5.0);
+
+        phases.push(Math.random() * Math.PI * 2);
+    }
+
+    return {
+        positions: new Float32Array(positions),
+        sizes: new Float32Array(sizes),
+        phases: new Float32Array(phases),
+        count: count
+    };
+}
