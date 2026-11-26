@@ -769,6 +769,7 @@ console.log("Shadow map:", shadowMap);
 const PondRadius = 15;
 const groundMesh = createMesh(createGround(90, PondRadius, 128, 40));
 const circularPavementMesh = createMesh(createCircularPavement(PondRadius+1, PondRadius+1+8, 128, 0.2));
+const grasslandMesh = createMesh(createGround(70, PondRadius+9, 128, 40));
 const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(150, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
@@ -794,6 +795,7 @@ function loadTexture(url) {
 }
 const groundTexture = loadTexture("images/mudground.webp");
 const pavementTexture = loadTexture("images/pavement.webp");
+const grassTexture = loadTexture("images/grass.avif");
 const waterTexture = loadAnimatedTexture("images/water.mp4");
 const mountainTexture = loadTexture("images/mountain(1).jpg");
 const sunTexture = loadAnimatedTexture("images/sun.mp4");
@@ -814,6 +816,7 @@ let isDaytime = true;
 const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
   { mesh: circularPavementMesh, texture: pavementTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
+  { mesh: grasslandMesh, texture: grassTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
 //   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
   { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -90] },
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition },
