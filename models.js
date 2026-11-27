@@ -283,115 +283,6 @@ function createOctagon() {
     indices: new Uint16Array(indices)
   };
 }
-
-function createTorus(R, r, segMajor, segMinor) {
-  //  vertex per (i, j) grid point → segMajor × segMinor vertices
-  const positions = [];
-  // Unit vector from tube center to surface point — needed for lighting
-  const colors = [];
-  // Each grid cell is a quad split into 2 triangles. The modulo wraps around so the ring closes seamlessly.
-  const indices = [];
-  const normals = [];
-  const tangents = [];
-  const texCoords = [];
-
-  // i moves around the large/main circle of the torus.
-  // j moves around the smaller tube of the torus.
-  // Together, i and j create a 2D grid of points
-  // that is wrapped into the shape of a torus.
-  for (let i = 0; i < segMajor; i++) {
-    for (let j = 0; j < segMinor; j++) {
-       // u = angle around the large/main ring.
-       // v = angle around the smaller tube.
-       // Math.PI * 2 = 360-degree.
-      const u = (i / segMajor) * Math.PI * 2;  
-      const v = (j / segMinor) * Math.PI * 2; 
-      
-      // cu and su describe the position around the circle torus.
-       // cv and sv describe the position around the radiouse.
-      const cu = Math.cos(u), su = Math.sin(u);
-      const cv = Math.cos(v), sv = Math.sin(v);
-
-      // The torus equation:
-      // x = (R + r*cos(v)) * cos(u)
-      // y = r*sin(v)
-      // z = (R + r*cos(v)) * sin(u)
-      // Position
-      positions.push(
-        (R + r * cv) * cu,
-        r * sv,
-        (R + r * cv) * su
-      );
-
-      // Normal
-      normals.push(
-        cv * cu,
-        sv,
-        cv * su
-      );
-
-      // Tangent: direction of increasing U
-      tangents.push(
-        -su,
-        0,
-        cu
-      );
-
-      // Texture coordinates
-      const texU = i / segMajor;
-      const texV = j / segMinor;
-
-      texCoords.push(texU, texV);
-
-      // Normal points outward from tube center to surface
-      // Tube center at ring distance R from origin:
-      const wave1 = Math.sin(u * 5.0 + v * 3.0);
-      const wave2 = Math.cos(u * 11.0 - v * 7.0) * 0.5;
-      
-      // Normalized heat intensity from 0.0 (charcoal) to 1.0 (white hot)
-      let heat = 0.5 + 0.5 * ((wave1 + wave2) / 1.5);
-      
-      // Boost heat on the inner ring of the torus for a dense core
-      heat = Math.min(1.0, heat * 1.15);
-
-      // Color mapping curve:
-      // Red rises fast (dominant warm base)
-      const red = Math.min(1.0, heat * 1.8); 
-      // Green rises exponentially (creates deep orange -> bright yellow)
-      const green = Math.pow(heat, 2.8); 
-      // Blue spikes only at peak temperatures (white-hot core)
-      const blue = Math.pow(heat, 7.0); 
-
-      colors.push(red, green, blue);
-    }
-  }
-
-  // Indices: each quad becomes two very small triangles
-  for (let i = 0; i < segMajor; i++) {
-    for (let j = 0; j < segMinor; j++) {
-      // a,b,c are the vertex that make the triangles
-      const a = i * segMinor + j;
-      const b = i * segMinor + (j + 1) % segMinor;
-      const c = ((i + 1) % segMajor) * segMinor + j;
-      // d is the diagonal vertex of the quad
-      const d = ((i + 1) % segMajor) * segMinor + (j + 1) % segMinor;
-
-      // 1st triangle
-      indices.push(a, b, c);
-      // 2nd triangle
-      indices.push(b, d, c);
-    }
-  }
-
-  return {
-    positions: new Float32Array(positions),
-    normals: new Float32Array(normals),
-    tangents: new Float32Array(tangents),
-    texCoords: new Float32Array(texCoords),
-    colors: new Float32Array(colors),
-    indices: new Uint16Array(indices)
-  };
-}
 function createDisk(segments = 64) {
     const positions = [0, 0, 0];
     const normals = [0, 1, 0];
@@ -449,18 +340,21 @@ function createPond(segments = 128, width = 6, depth = 4) {
             const angle = (i / segments) * Math.PI * 2;
 
             // Smooth, irregular shoreline
-            const irregularity =
-                1.0 +
-                0.10 * Math.sin(3.0 * angle) +
-                0.06 * Math.cos(2.0 * angle) +
-                0.035 * Math.sin(5.0 * angle) +
-                0.025 * Math.cos(7.0 * angle);
+            // const irregularity =
+            //     1.0 +
+            //     0.10 * Math.sin(3.0 * angle) +
+            //     0.06 * Math.cos(2.0 * angle) +
+            //     0.035 * Math.sin(5.0 * angle) +
+            //     0.025 * Math.cos(7.0 * angle);
 
-            const radius = r * irregularity;
+            // const radius = r * irregularity;
 
-            const x = width * radius * Math.cos(angle);
-            const z = depth * radius * Math.sin(angle);
+            // const x = width * radius * Math.cos(angle);
+            // const z = depth * radius * Math.sin(angle);
+const radius = r;
 
+const x = width * radius * Math.cos(angle);
+const z = depth * radius * Math.sin(angle);
             // Very subtle water surface movement
             const y =
                 0.025 * Math.sin(x * 1.2) *
@@ -1029,8 +923,7 @@ function createWindowGlass(windows, thickness, grow)
   return finishMesh(mesh);
 }
 
-function createBuilding(o)
-{
+function createBuilding(o){
   const hw = o.width/2;
   const hd = o.depth/2;
   const wallBottom = o.floorT;
