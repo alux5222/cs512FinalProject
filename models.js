@@ -936,6 +936,130 @@ function createCircularPavement(innerRadius, outerRadius, segments, uvScale)
     };
 }
 
+function addBox(mesh, x0, y0, z0, x1, y1, z1, uvScale)
+{
+  const faces = [
+    { n:[0, 1, 0], t:[1, 0, 0], uv:(x,y,z)=>[x, -z], c:[[x0,y1,z1], [x1,y1,z1], [x1,y1,z0], [x0,y1,z0]]},//top
+    { n:[0, -1, 0], t:[1, 0, 0], uv:(x,y,z)=>[x, z], c:[[x0,y0,z0], [x1,y0,z0], [x1,y0,z1], [x0,y0,z1]]},//bottom
+    { n:[0, 0, 1], t:[1, 0, 0], uv:(x,y,z)=>[x, y], c:[[x0,y0,z1], [x1,y0,z1], [x1,y1,z1], [x0,y1,z1]]},//front
+    { n:[0, 0, -1], t:[-1, 0, 0], uv:(x,y,z)=>[-x, y], c:[[x1,y0,z0], [x0,y0,z0], [x0,y1,z0], [x1,y1,z0]]},//back
+    { n:[1, 0, 0], t:[0, 0, -1], uv:(x,y,z)=>[-z, y], c:[[x1,y0,z1], [x1,y0,z0], [x1,y1,z0], [x1,y1,z1]]},//right
+    { n:[-1, 0, 0], t:[0, 0, 1], uv:(x,y,z)=>[z, y], c:[[x0,y0,z0], [x0,y0,z1], [x0,y1,z1], [x0,y1,z0]]}//left
+  ];
+
+  for(const f of faces)
+  {
+    const base = mesh.positions.length/3;
+    for(const [x,y,z] of f.c)
+    {
+      mesh.positions.push(x,y,z);
+      mesh.normals.push(...f.n);
+      mesh.tangents.push(...f.t);
+      const [u,v] = f.uv(x,y,z);
+      mesh.texCoords.push(u * uvScale, v * uvScale);
+    }
+    mesh.indices.push(base, base+1, base+2, base, base+2, base+3);
+  }
+}
+
+function newMesh()
+{
+  return {  positions: [], normals: [], tangents: [], texCoords: [], indices: []  };
+}
+
+function finishMesh(mesh)
+{
+  return {
+        positions: new Float32Array(mesh.positions),
+        normals: new Float32Array(mesh.normals),
+        tangents: new Float32Array(mesh.tangents),
+        texCoords: new Float32Array(mesh.texCoords),
+        indices: new Uint16Array(mesh.indices)
+    };
+}
+
+function addWall(mesh, windows, alongX, a0, a1, c0, c1, y0, y1, count, winW, winH, sill, uvScale)
+{
+  function Box(a, b, ya, yb)
+  {
+    if(alongX)
+      addBox(mesh, a, ya, c0, b, yb, c1, uvScale);
+    else
+      addBox(mesh, c0, ya, a, c1, yb, b, uvScale);
+  }
+
+  if(count == 0)
+  {
+    Box(a0, a1, y0, y1);
+    return;
+  }
+
+  const pillar = ((a1-a0) - count * winW)/(count+1);
+  if(pillar <= 0)
+    throw new Error("Windows are too wide for this wall");
+
+  Box(a0, a1, y0, y0+sill);
+  Box(a0, a1, y0+sill+winH, y1);
+
+  for(let i=0; i<=count; i++)
+  {
+    const start = a0 + i * (winW + pillar);
+    Box(start, start+pillar, y0+sill, y0+sill+winH);
+  }
+
+  for(let i=0; i<count; i++)
+  {
+    const start = a0 + pillar + i * (winW + pillar);
+    windows.push({alongX, a0: start, a1: start + winW, c0, c1, y0:y0+sill, y1: y0+sill+winH});
+  }
+}
+
+function createWindowGlass(windows, thickness, grow)
+{
+  const mesh = newMesh();
+  const h = thickness/2;
+  for(const w of windows)
+  {
+    const mid = (w.c0+w.c1)/2;
+    if(w.alongX)
+      addBox(mesh, w.a0-grow, w.y0-grow, mid-h, w.a1+grow, w.y1+grow, mid+h, 1);
+    else
+      addBox(mesh, mid-h, w.y0-grow, w.a0-grow, mid+h, w.y1+grow, w.a1+grow, 1);
+  }
+  return finishMesh(mesh);
+}
+
+function createBuilding(o)
+{
+  const hw = o.width/2;
+  const hd = o.depth/2;
+  const wallBottom = o.floorT;
+  const wallTop  = o.floorT + o.wallHeight;
+
+  const walls = newMesh(), floor = newMesh(), roof = newMesh();
+  const windows = [];
+
+  //front and back
+  addWall(walls, windows, true, -hw, hw, hd-o.wallT, hd, wallBottom, wallTop, 
+    o.windowsFront, o.windowW, o.windowH, o.sillH, o.uvScale);
+  addWall(walls, windows, true, -hw, hw, -hd, -hd+o.wallT, wallBottom, wallTop, 
+    o.windowsFront, o.windowW, o.windowH, o.sillH, o.uvScale);
+
+  //side
+  addWall(walls, windows, false, -hd+o.wallT, hd-o.wallT, -hw, -hw+o.wallT, wallBottom, wallTop, 
+    o.windowsSide, o.windowW, o.windowH, o.sillH, o.uvScale);
+  addWall(walls, windows, false, -hd+o.wallT, hd-o.wallT, hw-o.wallT, hw, wallBottom, wallTop, 
+    o.windowsSide, o.windowW, o.windowH, o.sillH, o.uvScale);
+
+  //floor
+  addBox(floor, -hw, 0, -hd, hw, o.floorT, hd, o.uvScale);
+
+  //roof
+  addBox(roof, -hw-o.overhang, wallTop, -hd-o.overhang, hw+o.overhang, wallTop+o.roofT, hd+o.overhang, o.uvScale);
+
+  return {walls:finishMesh(walls), floor:finishMesh(floor), roof:finishMesh(roof), windows};
+}
+
 function createStars(count = 1500, radius = 130) {
     const positions = [];
     const sizes = [];
@@ -970,3 +1094,32 @@ function createStars(count = 1500, radius = 130) {
         count: count
     };
 }
+
+function rotationFromRows(s, u, b)
+{
+  return [s[0], u[0], b[0], 0,
+          s[1], u[1], b[1], 0,
+          s[2], u[2], b[2], 0,
+          0, 0, 0, 1];
+}
+
+const FACE_ROTATIONS = [
+  rotationFromRows([0,0,-1], [0, -1, 0], [-1, 0, 0]),
+  rotationFromRows([0,0,1], [0, -1, 0], [1, 0, 0]),
+  rotationFromRows([1,0,0], [0, 0, 1], [0, -1, 0]),
+  rotationFromRows([1,0,0], [0, 0, -1], [0, 1, 0]),
+  rotationFromRows([1,0,0], [0, -1, 0], [0, 0, -1]),
+  rotationFromRows([-1,0,0], [0, -1, 0], [0, 0, 1]),
+];
+
+function cubeProjection(near, far)
+{
+  const a = -(far+near)/(far-near);
+  const b = -2*far*near/(far-near);
+  return [1,0,0,0, 0,1,0,0, 0,0,a,-1, 0,0,b,0];
+}
+
+const REFLECTION_PROJECTION = cubeProjection(0.1, 3000);
+const IDENTITY = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+
+const reflectionCenter = [ -80, 0+0.3+1+2.5, -45];

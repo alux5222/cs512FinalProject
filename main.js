@@ -468,6 +468,54 @@ void main() {
 }
 `;
 
+const GLASS_VERTEX_SHADER = `#version 300 es
+in vec3 aPosition;
+in vec3 aNormal;
+
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+
+out vec3 vPosition;
+out vec3 vNormal;
+
+void main() {
+
+  vec4 p = uModelView * vec4(aPosition, 1.0);
+  vPosition = p.xyz;
+  vNormal = mat3(uModelView) * aNormal;
+  gl_Position = uProjection * p;
+}
+`;
+
+const GLASS_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+in vec3 vPosition;
+in vec3 vNormal;
+
+uniform mat4 uCameraTurn;
+uniform samplerCube uEnvMap;
+uniform float uDaylight;
+
+out vec4 fragColor;
+
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 I = normalize(vPosition);
+  if(dot(N, I) > 0.0) N=-N;
+  vec3 R = reflect(I, N);
+  vec3 worldR = transpose(mat3(uCameraTurn))*R;
+  vec3 reflection = texture(uEnvMap, worldR).rgb;
+
+  float frensel = pow(1.0 - max(dot(N, -I), 0.0), 4.0);
+  vec3 tint = vec3(0.10, 0.18, 0.22) * (0.3+0.7*uDaylight);
+
+  vec3 color = mix(tint, reflection, mix(0.1, 1.0, frensel));
+  float alpha = mix(0.2, 0.95, frensel);
+  fragColor = vec4(color, alpha);
+}
+`;
+
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -512,6 +560,11 @@ const skyProgram = createProgram(
     SKY_FRAGMENT_SHADER
 );
 
+const glassProgram = createProgram(
+    GLASS_VERTEX_SHADER,
+    GLASS_FRAGMENT_SHADER
+);
+
 gl.useProgram(program);
 
 const uModelView = gl.getUniformLocation(program, "uModelView");
@@ -549,6 +602,14 @@ const skyUniforms = {
   // cloud uniforms
   uCloudCoverage: gl.getUniformLocation(skyProgram, "uCloudCoverage"),
   uCloudSpeed: gl.getUniformLocation(skyProgram, "uCloudSpeed"),
+};
+
+const glassUniforms = {
+    uModelView: gl.getUniformLocation(glassProgram, "uModelView"),
+    uProjection: gl.getUniformLocation(glassProgram, "uProjection"),
+    uCameraTurn: gl.getUniformLocation(glassProgram, "uCameraTurn"),
+    uEnvMap: gl.getUniformLocation(glassProgram, "uEnvMap"),
+    uDaylight: gl.getUniformLocation(glassProgram, "uDaylight"),
 };
 
 gl.uniform1i(
@@ -770,6 +831,13 @@ const PondRadius = 15;
 const groundMesh = createMesh(createGround(90, PondRadius, 128, 40));
 const circularPavementMesh = createMesh(createCircularPavement(PondRadius+1, PondRadius+1+8, 128, 0.2));
 const grasslandMesh = createMesh(createGround(70, PondRadius+9, 128, 40));
+const house = createBuilding({width:20, depth:50, wallHeight:16, wallT:0.5, floorT:0.3,
+    roofT:0.4, overhang:1, windowsFront:1, windowsSide:2, windowW:10, windowH:12, sillH:1, uvScale:0.2});
+const wallMesh = createMesh(house.walls);
+const floorMesh = createMesh(house.floor);
+const roofMesh = createMesh(house.roof);
+const houseMeshes = new Set([wallMesh, floorMesh, roofMesh]);
+const glassMesh = createMesh(createWindowGlass(house.windows, 0.1, 0.02));
 const pondMesh = createMesh(createPond(128, 6, 6.5));
 const mountainMesh = createMesh(createMountain(150, 22, 180));
 const sunMesh = createMesh(createSphere(100,4));
@@ -800,6 +868,9 @@ const waterTexture = loadAnimatedTexture("images/water.mp4");
 const mountainTexture = loadTexture("images/mountain(1).jpg");
 const sunTexture = loadAnimatedTexture("images/sun.mp4");
 const moonTexture = loadTexture("images/moon.jpg");
+const wallTexture = loadTexture("images/wall.webp");
+const roofTexture = loadTexture("images/roof.avif");
+const floorTexture = loadTexture("images/roof.avif");
 
 const BUMP_MAPPING = 0, NORMAL_MAPPING = 1, EMISSIVE_MAPPING = 3;
 
@@ -817,11 +888,18 @@ const objects = [
   { mesh: groundMesh, texture: groundTexture, mapping: BUMP_MAPPING, offset: [0, 0, 0] },
   { mesh: circularPavementMesh, texture: pavementTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
   { mesh: grasslandMesh, texture: grassTexture, mapping: BUMP_MAPPING, offset: [0, 0.05, 0] },
+  { mesh: wallMesh, texture: wallTexture, mapping: BUMP_MAPPING, offset: [-80, 0, -45] },
+  { mesh: floorMesh, texture: floorTexture, mapping: BUMP_MAPPING, offset: [-80, 0, -45] },
+  { mesh: roofMesh, texture: roofTexture, mapping: BUMP_MAPPING, offset: [-80, 0, -45] },
 //   { mesh: pondMesh, texture: waterTexture.texture, animatedTexture: waterTexture, mapping: BUMP_MAPPING, offset: [0, 0.2, 0] },
   { mesh: mountainMesh, texture: mountainTexture, mapping: BUMP_MAPPING, offset: [0, terrainHeight(0, -60)-2, -90] },
   { mesh: sunMesh, texture: sunTexture.texture, animatedTexture: sunTexture, mapping: EMISSIVE_MAPPING, offset: sunPosition },
   { mesh: moonMesh, texture: moonTexture, mapping: EMISSIVE_MAPPING, offset: moonPosition }
 
+];
+
+const glassObjects = [
+    {mesh: glassMesh, offset: [-80, 0, -45]}
 ];
 
 // ---------- Tree parts (trees.js builds the trees and street lights out of these) ----------
@@ -1274,6 +1352,42 @@ function drawStars(t) {
     gl.useProgram(program);
 }
 
+function drawGlass()
+{
+    gl.useProgram(glassProgram);
+    gl.uniformMatrix4fv(glassUniforms.uProjection, false, projection);
+    gl.uniformMatrix4fv(glassUniforms.uCameraTurn, false, cameraTurn);
+    gl.uniform1f(glassUniforms.uDaylight, getDaylight());
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, reflection.texture);
+    gl.uniform1i(glassUniforms.uEnvMap, 2);
+    gl.activeTexture(gl.TEXTURE0);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+
+    for (const { mesh, offset } of glassObjects) {
+        const model = multiply(rotation, translate(...offset));
+        gl.uniformMatrix4fv(glassUniforms.uModelView, false, multiply(view, model));
+        gl.bindVertexArray(mesh.vao);
+        gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+    }
+
+    gl.bindVertexArray(null);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+    gl.activeTexture(gl.TEXTURE0);
+
+    gl.useProgram(program);
+}
+
 function updateSky() {
     const daylight = getDaylight();
 
@@ -1298,6 +1412,101 @@ function updateSky() {
     const b = from[2] + (to[2] - from[2]) * factor;
 
     gl.clearColor(r, g, b, 1.0);
+}
+
+const REFLECTION_SIZE = 256;
+    const REFLECTION_UPDATE_EVERY = 4;
+    let reflectionFrame = 0;
+
+    const reflection = {
+    texture: gl.createTexture(),
+    framebuffer: gl.createFramebuffer(),
+    depth: gl.createRenderbuffer(),
+    };
+
+function initiateReflection()
+{
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, reflection.texture);
+    for(let i=0; i<6; i++)
+        gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, gl.RGBA8, REFLECTION_SIZE, REFLECTION_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, null);
+
+    gl.bindRenderbuffer(gl.RENDERBUFFER, reflection.depth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, REFLECTION_SIZE, REFLECTION_SIZE);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, reflection.framebuffer);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, reflection.depth);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X, reflection.texture, 0);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+initiateReflection();
+
+function updateReflectionCube(t)
+{
+  const saved = {view, rotation, cameraTurn, projection};
+  gl.bindFramebuffer(gl.FRAMEBUFFER, reflection.framebuffer);
+  gl.viewport(0, 0, REFLECTION_SIZE, REFLECTION_SIZE);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthMask(true);
+
+  for(let face=0; face<6; face++)
+  {
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X+face, reflection.texture, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const faceRotation = FACE_ROTATIONS[face];
+    rotation = IDENTITY;
+    cameraTurn = faceRotation;
+    view = multiply(faceRotation, translate(-reflectionCenter[0], -reflectionCenter[1], -reflectionCenter[2]));
+    projection = REFLECTION_PROJECTION;
+
+    drawSky(t);
+    gl.useProgram(program);
+    gl.uniformMatrix4fv(uProjection, false, projection);
+    updateLighting();
+    updateLamps();
+    gl.activeTexture(gl.TEXTURE0);
+
+    for(const {mesh, texture, mapping, offset} of objects)
+    {
+      if(houseMeshes.has(mesh)) continue;
+      if(mesh === sunMesh && !isDaytime) continue;
+      if(mesh === moonMesh && isDaytime) continue;
+
+      gl.uniformMatrix4fv(uModel, false, translate(...offset));
+      if(mesh === sunMesh || mesh === moonMesh)
+      {
+        gl.uniformMatrix4fv(uModelView, false, multiply(cameraTurn, translate(...offset)));
+      }
+      else
+      {
+        const model = multiply(rotation, translate(...offset));
+        gl.uniformMatrix4fv(uModelView, false, multiply(view, model));
+      }
+
+      gl.uniform1i(uMapping, mapping);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.bindVertexArray(mesh.vao);
+      gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+    }
+
+    drawForest(forest, treeParts, drawPart);
+    drawLamps(lamps, treeParts, drawPart);
+    drawStars(t);
+  }
+
+  ({view, rotation, cameraTurn, projection} = saved);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.bindVertexArray(null);
 }
 
 // Render loop
@@ -1390,6 +1599,9 @@ function render(time) {
   drawForest(forest, treeParts, drawPart);
   drawLamps(lamps, treeParts, drawPart);
   drawStars(t);
+
+  if(reflectionFrame++ % REFLECTION_UPDATE_EVERY === 0) updateReflectionCube(t);
+  drawGlass();
   
   requestAnimationFrame(render);
 }
