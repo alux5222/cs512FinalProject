@@ -19,15 +19,51 @@
             width: 100vw;
             height: 100vh;
         }
+        /* Summer / winter buttons in the top right corner */
+        #seasonButtons {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            display: flex;
+            gap: 8px;
+        }
+
+        #seasonButtons button {
+            width: 56px;
+            height: 56px;
+            padding: 6px;
+            border: 3px solid transparent;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.75);
+            cursor: pointer;
+        }
+
+        /* the season that is on gets a blue border */
+        #seasonButtons button.active {
+            border-color: #2a7ab8;
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        #seasonButtons img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
     </style>
 </head>
 
 <body>
     <canvas id="glcanvas"></canvas>
 
+    <div id="seasonButtons">
+        <button id="summerBtn" class="active" title="Summer"><img src="images/summer.png" alt="Summer"></button>
+        <button id="winterBtn" title="Winter"><img src="images/winter.png" alt="Winter"></button>
+    </div>
+
     <script src="transforms.js"></script>
     <script src="models.js"></script>
     <script src="trees.js"></script>
+    <script src="particles.js"></script>
     <script type="module" src="main.js"></script>
 </body>
 

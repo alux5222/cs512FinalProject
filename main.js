@@ -516,6 +516,32 @@ void main() {
 }
 `;
 
+// PARTICLES (snow, and later the fountain): every particle is drawn as a point (gl.POINTS),
+// a soft round dot
+const PARTICLE_VERTEX_SHADER = `#version 300 es
+in vec3 aPosition;
+uniform mat4 uModelView;
+uniform mat4 uProjection;
+uniform float uPointSize;
+void main() {
+  vec4 p = uModelView * vec4(aPosition, 1.0);
+  gl_Position = uProjection * p;
+  gl_PointSize = uPointSize / -p.z;     // closer particles are bigger
+}
+`;
+
+const PARTICLE_FRAGMENT_SHADER = `#version 300 es
+precision mediump float;
+uniform vec3 uColor;        // white for snow, light blue for water...
+uniform float uBrightness;  // darker at night
+out vec4 fragColor;
+void main() {
+  float d = length(gl_PointCoord - vec2(0.5));   // distance from the middle of the point
+  if (d > 0.5) discard;                          // cut the square point into a circle
+  fragColor = vec4(uColor * uBrightness, 1.0 - d * 2.0);   // see-through at the edge
+}
+`;
+
 // WebGL setup
 const canvas = document.getElementById("glcanvas");
 const gl = canvas.getContext("webgl2");
@@ -564,6 +590,19 @@ const glassProgram = createProgram(
     GLASS_VERTEX_SHADER,
     GLASS_FRAGMENT_SHADER
 );
+
+const particleProgram = createProgram(
+    PARTICLE_VERTEX_SHADER,
+    PARTICLE_FRAGMENT_SHADER
+);
+
+const particleUniforms = {
+  uModelView: gl.getUniformLocation(particleProgram, "uModelView"),
+  uProjection: gl.getUniformLocation(particleProgram, "uProjection"),
+  uPointSize: gl.getUniformLocation(particleProgram, "uPointSize"),
+  uColor: gl.getUniformLocation(particleProgram, "uColor"),
+  uBrightness: gl.getUniformLocation(particleProgram, "uBrightness")
+};
 
 gl.useProgram(program);
 
@@ -954,6 +993,60 @@ function updateLamps() {
   // the bulbs: plain grey glass by day, glowing warm at night
   treeParts.lampGlow.color = [0.55 + 0.45 * strength, 0.55 + 0.42 * strength, 0.55 + 0.3 * strength];
 }
+
+// ---------- Particle systems (particles.js moves the particles, main.js draws them) ----------
+// Each system gets one buffer that is refilled every frame with the new positions.
+function createParticleMesh(system) {
+  system.vao = gl.createVertexArray();
+  gl.bindVertexArray(system.vao);
+  system.buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, system.buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, system.positions, gl.DYNAMIC_DRAW);   // DYNAMIC: it changes every frame
+  gl.vertexAttribPointer(ATTRIBUTES.aPosition, 3, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(ATTRIBUTES.aPosition);
+  gl.bindVertexArray(null);
+}
+
+// Draw any particle system (snow, fountain, ...) as soft round points
+function drawParticles(system) {
+  gl.useProgram(particleProgram);
+  gl.uniformMatrix4fv(particleUniforms.uModelView, false, multiply(view, rotation));   // particles are in world space, like the trees
+  gl.uniformMatrix4fv(particleUniforms.uProjection, false, projection);
+  gl.uniform1f(particleUniforms.uPointSize, system.size * canvas.height / (2 * Math.tan(Math.PI / 8)));
+  gl.uniform3fv(particleUniforms.uColor, system.color);
+  gl.uniform1f(particleUniforms.uBrightness, 0.5 + 0.5 * getDaylight());   // darker at night
+
+  // send the new positions to the GPU
+  gl.bindVertexArray(system.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, system.buffer);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, system.positions);
+
+  // see-through points: blend, and don't write depth so they don't block each other
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.depthMask(false);
+  gl.drawArrays(gl.POINTS, 0, system.count);
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+
+  gl.bindVertexArray(null);
+  gl.useProgram(program);
+}
+
+const snow = createSnow(5000);
+createParticleMesh(snow);
+
+// ---------- Seasons: buttons in the top right corner (see index.html) ----------
+let snowing = false;   // summer is the default: no snow
+
+function setSeason(season) {
+  snowing = (season === "winter");
+  // the button of the season that is on gets the "active" style (blue border)
+  document.getElementById("summerBtn").classList.toggle("active", season === "summer");
+  document.getElementById("winterBtn").classList.toggle("active", season === "winter");
+}
+document.getElementById("summerBtn").addEventListener("click", () => setSeason("summer"));
+document.getElementById("winterBtn").addEventListener("click", () => setSeason("winter"));
 
 gl.enable(gl.DEPTH_TEST);
 gl.clearColor(0.53, 0.81, 0.92, 1.0);
@@ -1510,8 +1603,11 @@ function updateReflectionCube(t)
 }
 
 // Render loop
+let lastTime = 0;
 function render(time) {
   const t = time / 1000;
+  const dt = Math.min(t - lastTime, 0.1);   // seconds since the last frame (capped if the tab was hidden)
+  lastTime = t;
 
 
   updateSunAndMoon(t);
@@ -1602,6 +1698,12 @@ function render(time) {
 
   if(reflectionFrame++ % REFLECTION_UPDATE_EVERY === 0) updateReflectionCube(t);
   drawGlass();
+
+  // particle systems (particles.js)
+  if (snowing) {
+    updateSnow(snow, dt, t);
+    drawParticles(snow);
+  }
   
   requestAnimationFrame(render);
 }
